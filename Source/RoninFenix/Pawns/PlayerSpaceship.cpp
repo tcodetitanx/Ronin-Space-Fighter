@@ -100,15 +100,15 @@ void APlayerSpaceship::CreateInputActions()
 		ShipMappingContext->MapKey(IA_Steering, EKeys::Mouse2D);
 	}
 
-	// Q = Roll Left
+	// A = Roll Left
 	{
-		FEnhancedActionKeyMapping& Mapping = ShipMappingContext->MapKey(IA_Roll, EKeys::Q);
+		FEnhancedActionKeyMapping& Mapping = ShipMappingContext->MapKey(IA_Roll, EKeys::A);
 		UInputModifierNegate* Negate = NewObject<UInputModifierNegate>(this);
 		Mapping.Modifiers.Add(Negate);
 	}
-	// E = Roll Right
+	// D = Roll Right
 	{
-		ShipMappingContext->MapKey(IA_Roll, EKeys::E);
+		ShipMappingContext->MapKey(IA_Roll, EKeys::D);
 	}
 
 	// Left Mouse Button = Fire Lasers

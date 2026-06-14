@@ -447,16 +447,39 @@ void FProceduralShipMeshBuilder::ApplyToMeshComponent(UProceduralMeshComponent* 
 {
 	if (!MeshComp || Data.Vertices.Num() == 0) return;
 
-	TArray<FVector2D> EmptyUV1, EmptyUV2, EmptyUV3;
+	FProcMeshData DoubleSided;
+	DoubleSided.Vertices = Data.Vertices;
+	DoubleSided.Triangles = Data.Triangles;
+	DoubleSided.UVs = Data.UVs;
+	DoubleSided.VertexColors = Data.VertexColors;
+
+	int32 VertCount = Data.Vertices.Num();
+	for (int32 i = 0; i < VertCount; ++i)
+	{
+		DoubleSided.Vertices.Add(Data.Vertices[i]);
+		DoubleSided.Normals.Add(-Data.Normals[i]);
+		DoubleSided.UVs.Add(Data.UVs[i]);
+		DoubleSided.VertexColors.Add(Data.VertexColors[i]);
+	}
+	DoubleSided.Normals.Insert(Data.Normals, 0);
+
+	int32 TriCount = Data.Triangles.Num();
+	for (int32 i = 0; i < TriCount; i += 3)
+	{
+		DoubleSided.Triangles.Add(Data.Triangles[i] + VertCount);
+		DoubleSided.Triangles.Add(Data.Triangles[i + 2] + VertCount);
+		DoubleSided.Triangles.Add(Data.Triangles[i + 1] + VertCount);
+	}
+
 	TArray<FProcMeshTangent> Tangents;
 
 	MeshComp->CreateMeshSection_LinearColor(
 		SectionIndex,
-		Data.Vertices,
-		Data.Triangles,
-		Data.Normals,
-		Data.UVs,
-		Data.VertexColors,
+		DoubleSided.Vertices,
+		DoubleSided.Triangles,
+		DoubleSided.Normals,
+		DoubleSided.UVs,
+		DoubleSided.VertexColors,
 		Tangents,
 		true
 	);

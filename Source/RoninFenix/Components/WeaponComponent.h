@@ -52,11 +52,11 @@ private:
 	float FireCooldown = 0.f;
 	int32 MissilesRemaining = 4;
 	float CurrentHeat = 0.f;
-	float MaxHeat = 100.f;
+	float MaxHeat = 500.f;
 	float HeatPerShot = 8.f;
 	float CooldownRate = 30.f;
 	bool bOverheated = false;
-	float OverheatThreshold = 100.f;
+	float OverheatThreshold = 500.f;
 	float CooldownThreshold = 30.f;
 	bool bAlternateBarrel = false;
 };
