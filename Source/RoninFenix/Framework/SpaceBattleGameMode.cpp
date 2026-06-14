@@ -70,6 +70,7 @@ void ASpaceBattleGameMode::RestartPlayer(AController* NewPlayer)
 	{
 		Ship->SetTeam(ESpaceTeam::Alpha);
 		Ship->SetShipClass(EShipClass::Fighter);
+		Ship->InitializeShip();
 		PC->Possess(Ship);
 	}
 
@@ -131,6 +132,7 @@ void ASpaceBattleGameMode::SpawnAIShips()
 			{
 				AIShip->SetTeam(Team);
 				AIShip->SetShipClass(Classes[i % 4]);
+				AIShip->InitializeShip();
 				AIShips.Add(AIShip);
 
 				AIShip->GetHealthComp()->OnDeath.AddDynamic(this, &ASpaceBattleGameMode::OnAIShipDestroyed);
@@ -214,6 +216,7 @@ void ASpaceBattleGameMode::RespawnPlayer(ASpaceBattlePlayerController* PC)
 	{
 		NewShip->SetTeam(ESpaceTeam::Alpha);
 		NewShip->SetShipClass(EShipClass::Fighter);
+		NewShip->InitializeShip();
 		PC->Possess(NewShip);
 	}
 }

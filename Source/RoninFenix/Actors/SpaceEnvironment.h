@@ -24,6 +24,8 @@ private:
 	void CreateStarfield();
 	void CreateNebula();
 	void CreateLighting();
+	void CreateSkybox();
+	void CreatePlanet();
 
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<USceneComponent> Root;

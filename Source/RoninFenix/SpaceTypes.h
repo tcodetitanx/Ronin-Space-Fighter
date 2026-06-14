@@ -122,7 +122,7 @@ namespace SpaceConstants
 	constexpr float RespawnDelay = 3.f;
 	constexpr int32 ScoreToWin = 100;
 	constexpr float LaserSpeed = 20000.f;
-	constexpr float MissileSpeed = 8000.f;
+	constexpr float MissileSpeed = 15000.f;
 	constexpr float LaserLifetime = 3.f;
 	constexpr float MissileLifetime = 8.f;
 	constexpr float LockOnRange = 8000.f;

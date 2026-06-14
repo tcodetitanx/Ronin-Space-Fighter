@@ -29,9 +29,9 @@ ALaserProjectile::ALaserProjectile()
 
 	LightComp = CreateDefaultSubobject<UPointLightComponent>(TEXT("Light"));
 	LightComp->SetupAttachment(RootComponent);
-	LightComp->SetIntensity(5000.f);
-	LightComp->SetAttenuationRadius(200.f);
-	LightComp->SetLightColor(FLinearColor(0.2f, 1.f, 0.2f));
+	LightComp->SetIntensity(15000.f);
+	LightComp->SetAttenuationRadius(500.f);
+	LightComp->SetLightColor(FLinearColor(1.f, 0.0f, 0.0f));
 
 	InitialLifeSpan = SpaceConstants::LaserLifetime;
 }
@@ -55,7 +55,7 @@ void ALaserProjectile::Initialize(float InDamage, float InSpeed, ESpaceTeam InTe
 	Team = InTeam;
 
 	FLinearColor LaserColor = (InTeam == ESpaceTeam::Alpha) ?
-		FLinearColor(0.2f, 1.f, 0.3f) : FLinearColor(1.f, 0.2f, 0.2f);
+		FLinearColor(1.f, 0.0f, 0.0f) : FLinearColor(1.f, 0.4f, 0.0f);
 
 	if (LightComp)
 	{
@@ -70,7 +70,7 @@ void ALaserProjectile::Initialize(float InDamage, float InSpeed, ESpaceTeam InTe
 			UMaterialInstanceDynamic* DynMat = UMaterialInstanceDynamic::Create(BaseMat, this);
 			if (DynMat)
 			{
-				DynMat->SetVectorParameterValue(TEXT("Color"), LaserColor * 5.f);
+				DynMat->SetVectorParameterValue(TEXT("Color"), LaserColor * 50.f);
 				MeshComp->SetMaterial(0, DynMat);
 			}
 		}
@@ -81,22 +81,31 @@ void ALaserProjectile::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	FVector Movement = GetActorForwardVector() * Speed * DeltaTime;
-	SetActorLocation(GetActorLocation() + Movement);
+	FVector Start = GetActorLocation();
+	FVector End = Start + GetActorForwardVector() * Speed * DeltaTime;
 
-	TArray<AActor*> OverlappingActors;
-	CollisionComp->GetOverlappingActors(OverlappingActors);
-	for (AActor* Actor : OverlappingActors)
+	// Sweep along movement path to catch high-speed hits
+	FHitResult Hit;
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(this);
+	if (GetOwner()) Params.AddIgnoredActor(GetOwner());
+
+	if (GetWorld()->SweepSingleByChannel(Hit, Start, End, FQuat::Identity,
+		ECC_Visibility, FCollisionShape::MakeSphere(20.f), Params))
 	{
-		if (Actor == this || Actor == GetOwner()) continue;
-
-		UHealthShieldComponent* Health = Actor->FindComponentByClass<UHealthShieldComponent>();
-		if (Health)
+		AActor* HitActor = Hit.GetActor();
+		if (HitActor)
 		{
-			Health->ApplyDamage(Damage, GetOwner());
-			Destroy();
-			return;
+			UHealthShieldComponent* Health = HitActor->FindComponentByClass<UHealthShieldComponent>();
+			if (Health)
+			{
+				Health->ApplyDamage(Damage, GetOwner());
+			}
 		}
+		Destroy();
+		return;
 	}
+
+	SetActorLocation(End);
 }
 

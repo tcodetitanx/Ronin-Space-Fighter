@@ -20,6 +20,10 @@ AAsteroid::AAsteroid()
 void AAsteroid::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// Allow ships (Pawn channel) to overlap so collision damage fires
+	CollisionComp->SetGenerateOverlapEvents(true);
+	CollisionComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 }
 
 void AAsteroid::InitializeAsteroid(float InRadius, int32 Seed)

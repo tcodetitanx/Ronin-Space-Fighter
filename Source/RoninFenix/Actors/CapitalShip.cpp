@@ -13,7 +13,7 @@ ACapitalShip::ACapitalShip()
 	PrimaryActorTick.bCanEverTick = true;
 
 	CollisionComp = CreateDefaultSubobject<UBoxComponent>(TEXT("Collision"));
-	CollisionComp->SetBoxExtent(FVector(2500.f, 500.f, 250.f));
+	CollisionComp->SetBoxExtent(FVector(7500.f, 1500.f, 750.f));
 	CollisionComp->SetCollisionProfileName(TEXT("BlockAllDynamic"));
 	RootComponent = CollisionComp;
 
@@ -38,6 +38,7 @@ void ACapitalShip::InitializeCapitalShip(ESpaceTeam InTeam)
 		FLinearColor(0.15f, 0.2f, 0.4f) : FLinearColor(0.4f, 0.15f, 0.15f);
 
 	FProceduralShipMeshBuilder::BuildCapitalShipMesh(ShipMesh, HullColor);
+	ShipMesh->SetRelativeScale3D(FVector(3.f));
 
 	HealthComp->SetStats(2000.f, 500.f, 5.f, 10.f);
 
@@ -47,28 +48,28 @@ void ACapitalShip::InitializeCapitalShip(ESpaceTeam InTeam)
 	Shield.Type = ESubsystemType::ShieldGenerator;
 	Shield.MaxHealth = 400.f;
 	Shield.CurrentHealth = 400.f;
-	Shield.RelativeLocation = FVector(800.f, 0.f, 200.f);
+	Shield.RelativeLocation = FVector(2400.f, 0.f, 600.f);
 	Subsystems.Add(Shield);
 
 	FCapitalShipSubsystem Engine;
 	Engine.Type = ESubsystemType::EngineArray;
 	Engine.MaxHealth = 500.f;
 	Engine.CurrentHealth = 500.f;
-	Engine.RelativeLocation = FVector(-2000.f, 0.f, 0.f);
+	Engine.RelativeLocation = FVector(-6000.f, 0.f, 0.f);
 	Subsystems.Add(Engine);
 
 	FCapitalShipSubsystem Weapons;
 	Weapons.Type = ESubsystemType::WeaponBattery;
 	Weapons.MaxHealth = 350.f;
 	Weapons.CurrentHealth = 350.f;
-	Weapons.RelativeLocation = FVector(0.f, 300.f, 100.f);
+	Weapons.RelativeLocation = FVector(0.f, 900.f, 300.f);
 	Subsystems.Add(Weapons);
 
 	FCapitalShipSubsystem Bridge;
 	Bridge.Type = ESubsystemType::Bridge;
 	Bridge.MaxHealth = 300.f;
 	Bridge.CurrentHealth = 300.f;
-	Bridge.RelativeLocation = FVector(400.f, 0.f, 400.f);
+	Bridge.RelativeLocation = FVector(1200.f, 0.f, 1200.f);
 	Subsystems.Add(Bridge);
 
 	for (int32 i = 0; i < Subsystems.Num(); ++i)
@@ -170,9 +171,9 @@ void ACapitalShip::FireTurrets(float DeltaTime)
 	if (!World) return;
 
 	FVector TurretPositions[] = {
-		GetActorLocation() + GetActorRotation().RotateVector(FVector(600.f, 0.f, 200.f)),
-		GetActorLocation() + GetActorRotation().RotateVector(FVector(0.f, 0.f, 200.f)),
-		GetActorLocation() + GetActorRotation().RotateVector(FVector(-600.f, 0.f, 200.f)),
+		GetActorLocation() + GetActorRotation().RotateVector(FVector(1800.f, 0.f, 600.f)),
+		GetActorLocation() + GetActorRotation().RotateVector(FVector(0.f, 0.f, 600.f)),
+		GetActorLocation() + GetActorRotation().RotateVector(FVector(-1800.f, 0.f, 600.f)),
 	};
 
 	for (const FVector& TurretPos : TurretPositions)

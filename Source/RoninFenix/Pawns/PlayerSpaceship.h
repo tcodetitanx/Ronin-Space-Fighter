@@ -6,6 +6,7 @@
 
 class USpringArmComponent;
 class UCameraComponent;
+class UAudioComponent;
 class UInputAction;
 class UInputMappingContext;
 struct FInputActionValue;
@@ -22,6 +23,36 @@ public:
 	virtual void Tick(float DeltaTime) override;
 
 	UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+
+	/** Distance of camera behind the ship (tweak live in Details panel) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+	float CameraDistance = 400.f;
+
+	/** How far above the ship the camera sits — pushes the ship below the reticle */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+	float CameraHeight = 120.f;
+
+	/** Mouse steering multiplier (higher = faster turning) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Controls")
+	float SteeringSensitivity = 6.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio", meta = (ClampMin = "0.0", ClampMax = "2.0"))
+	float ThrusterHumVolume = 0.125f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio", meta = (ClampMin = "0.0", ClampMax = "2.0"))
+	float ThrusterLowVolume = 0.125f;
+
+	/** Pixel offset of reticle from screen center (accumulated from mouse input) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Controls")
+	FVector2D ReticleOffset = FVector2D::ZeroVector;
+
+	/** Maximum pixel radius the reticle can move from center */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Controls")
+	float ReticleRadius = 200.f;
+
+	/** Get current reticle offset for HUD drawing */
+	FVector2D GetReticleOffset() const { return ReticleOffset; }
+	float GetReticleRadius() const { return ReticleRadius; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -83,4 +114,18 @@ private:
 	float BarrelRollTimer = 0.f;
 	bool bBarrelRolling = false;
 	float BarrelRollDirection = 1.f;
+
+	// Engine exhaust ring buffer trail
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> EngineTrailDots;
+	int32 EngineTrailIndex = 0;
+	float EngineTrailTimer = 0.f;
+	static constexpr int32 EngineTrailCount = 30;
+	static constexpr float EngineTrailInterval = 0.02f;
+
+	UPROPERTY()
+	TObjectPtr<UAudioComponent> ThrusterHumAudio;
+
+	UPROPERTY()
+	TObjectPtr<UAudioComponent> ThrusterLowAudio;
 };

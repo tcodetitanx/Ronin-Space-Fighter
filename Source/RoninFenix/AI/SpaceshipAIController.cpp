@@ -19,7 +19,10 @@ void ASpaceshipAIController::OnPossess(APawn* InPawn)
 
 	if (ShipPawn)
 	{
-		PatrolTarget = ShipPawn->GetActorLocation() + FMath::VRand() * PatrolRadius;
+		// Set home position near their capital ship
+		float Direction = (ShipPawn->GetTeam() == ESpaceTeam::Alpha) ? -1.f : 1.f;
+		HomePosition = FVector(Direction * SpaceConstants::CapitalShipSpawnDistance, 0.f, 10000.f);
+		PatrolTarget = HomePosition + FMath::VRand() * PatrolRadius;
 	}
 }
 
@@ -63,6 +66,14 @@ void ASpaceshipAIController::UpdateState()
 
 	float HealthPct = ShipPawn->GetHealthComp()->GetHealthPercent();
 
+	// Leash: return to base if too far from home
+	float DistFromHome = FVector::Dist(ShipPawn->GetActorLocation(), HomePosition);
+	if (DistFromHome > MaxDistanceFromHome && CurrentState != EAIState::Evade && CurrentState != EAIState::ReturnToBase)
+	{
+		CurrentState = EAIState::ReturnToBase;
+		return;
+	}
+
 	if (HealthPct < 0.2f && CurrentState != EAIState::Evade)
 	{
 		CurrentState = EAIState::Evade;
@@ -96,7 +107,7 @@ void ASpaceshipAIController::UpdateState()
 	if (CurrentState != EAIState::Patrol)
 	{
 		CurrentState = EAIState::Patrol;
-		PatrolTarget = ShipPawn->GetActorLocation() + FMath::VRand() * PatrolRadius;
+		PatrolTarget = HomePosition + FMath::VRand() * PatrolRadius;
 	}
 }
 
@@ -105,7 +116,7 @@ void ASpaceshipAIController::ExecutePatrol(float DeltaTime)
 	float Dist = FVector::Dist(ShipPawn->GetActorLocation(), PatrolTarget);
 	if (Dist < 1000.f)
 	{
-		PatrolTarget = ShipPawn->GetActorLocation() + FMath::VRand() * PatrolRadius;
+		PatrolTarget = HomePosition + FMath::VRand() * PatrolRadius;
 	}
 
 	FlyToward(PatrolTarget, DeltaTime, 500.f);
@@ -218,7 +229,7 @@ void ASpaceshipAIController::ExecuteEvade(float DeltaTime)
 	ShipPawn->GetMovementComp()->SetThrottleInput(1.f);
 	ShipPawn->GetMovementComp()->SetBoostInput(true);
 
-	FVector EvadeDir = ShipPawn->GetActorForwardVector() + ShipPawn->GetActorRightVector() * FMath::Sin(GetWorld()->GetTimeSeconds() * 3.f);
+	FVector EvadeDir = ShipPawn->GetActorForwardVector() + ShipPawn->GetActorRightVector() * FMath::Sin(GetWorld()->GetTimeSeconds() * 1.f) * 0.5f;
 	FVector EvadeTarget = ShipPawn->GetActorLocation() + EvadeDir * 3000.f;
 	FlyToward(EvadeTarget, DeltaTime, 0.f);
 
@@ -231,12 +242,13 @@ void ASpaceshipAIController::ExecuteEvade(float DeltaTime)
 
 void ASpaceshipAIController::ExecuteReturnToBase(float DeltaTime)
 {
-	FlyToward(FVector::ZeroVector, DeltaTime, 2000.f);
-	ShipPawn->GetMovementComp()->SetThrottleInput(0.7f);
+	FlyToward(HomePosition, DeltaTime, 2000.f);
+	ShipPawn->GetMovementComp()->SetThrottleInput(1.f);
 
-	if (FVector::Dist(ShipPawn->GetActorLocation(), FVector::ZeroVector) < 3000.f)
+	if (FVector::Dist(ShipPawn->GetActorLocation(), HomePosition) < 5000.f)
 	{
 		CurrentState = EAIState::Patrol;
+		PatrolTarget = HomePosition + FMath::VRand() * PatrolRadius;
 	}
 }
 
@@ -254,12 +266,12 @@ void ASpaceshipAIController::FlyToward(FVector TargetLocation, float DeltaTime, 
 	float PitchDot = FVector::DotProduct(TargetDir, Up);
 	float ForwardDot = FVector::DotProduct(TargetDir, Forward);
 
-	float YawInput = FMath::Clamp(YawDot * 3.f, -1.f, 1.f);
-	float PitchInput = FMath::Clamp(-PitchDot * 3.f, -1.f, 1.f);
+	float YawInput = FMath::Clamp(YawDot * 1.5f, -1.f, 1.f);
+	float PitchInput = FMath::Clamp(-PitchDot * 1.5f, -1.f, 1.f);
 
-	float RollTarget = -YawDot * 2.f;
+	float RollTarget = -YawDot * 1.f;
 	float CurrentRollDot = FVector::DotProduct(FVector::UpVector, Right);
-	float RollInput = FMath::Clamp((RollTarget - CurrentRollDot) * 2.f, -1.f, 1.f);
+	float RollInput = FMath::Clamp((RollTarget - CurrentRollDot) * 1.f, -1.f, 1.f);
 
 	ShipPawn->GetMovementComp()->SetYawInput(YawInput);
 	ShipPawn->GetMovementComp()->SetPitchInput(PitchInput);

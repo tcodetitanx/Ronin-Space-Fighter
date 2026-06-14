@@ -39,8 +39,16 @@ private:
 
 	float Damage = 40.f;
 	float Speed = 8000.f;
-	float TurnRate = 3.f;
+	float TurnRate = 8.f;
 	ESpaceTeam Team = ESpaceTeam::Neutral;
 	float ArmingTime = 0.3f;
 	float ArmTimer = 0.f;
+
+	// Ring buffer trail
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> TrailDots;
+	int32 TrailIndex = 0;
+	float TrailTimer = 0.f;
+	static constexpr int32 TrailCount = 20;
+	static constexpr float TrailInterval = 0.02f;
 };

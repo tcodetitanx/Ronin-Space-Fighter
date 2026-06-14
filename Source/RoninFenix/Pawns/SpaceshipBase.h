@@ -5,7 +5,6 @@
 #include "SpaceTypes.h"
 #include "SpaceshipBase.generated.h"
 
-class UProceduralMeshComponent;
 class USpaceshipMovementComponent;
 class UHealthShieldComponent;
 class UWeaponComponent;
@@ -48,7 +47,7 @@ protected:
 	TObjectPtr<USphereComponent> CollisionComp;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-	TObjectPtr<UProceduralMeshComponent> ShipMesh;
+	TObjectPtr<UStaticMeshComponent> ShipMesh;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	TObjectPtr<USpaceshipMovementComponent> MovementComp;
@@ -76,4 +75,9 @@ protected:
 
 	FLinearColor GetTeamColor() const;
 	void ApplyShipClassStats();
+
+	UFUNCTION()
+	void OnShipOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
+		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex,
+		bool bFromSweep, const FHitResult& SweepResult);
 };

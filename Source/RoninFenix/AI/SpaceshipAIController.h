@@ -57,4 +57,6 @@ private:
 	float PatrolRadius = 10000.f;
 	float EvadeTimer = 0.f;
 	float DecisionTimer = 0.f;
+	FVector HomePosition = FVector::ZeroVector;
+	float MaxDistanceFromHome = 15000.f;
 };

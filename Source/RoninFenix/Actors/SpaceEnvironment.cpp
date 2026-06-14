@@ -3,8 +3,13 @@
 #include "Components/PointLightComponent.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/Texture2D.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialExpressionTextureSample.h"
 #include "UObject/ConstructorHelpers.h"
+#include "ImageUtils.h"
+#include "Misc/FileHelper.h"
 #include "SpaceTypes.h"
 
 ASpaceEnvironment::ASpaceEnvironment()
@@ -19,9 +24,11 @@ void ASpaceEnvironment::BeginPlay()
 {
 	Super::BeginPlay();
 
+	CreateSkybox();
 	CreateStarfield();
 	CreateNebula();
 	CreateLighting();
+	CreatePlanet();
 }
 
 void ASpaceEnvironment::CreateStarfield()
@@ -124,27 +131,166 @@ void ASpaceEnvironment::CreateNebula()
 
 void ASpaceEnvironment::CreateLighting()
 {
-	// Main sun light
+	// Single directional sun light
 	UDirectionalLightComponent* SunLight = NewObject<UDirectionalLightComponent>(this);
 	SunLight->SetupAttachment(RootComponent);
-	SunLight->SetIntensity(3.f);
+	SunLight->SetIntensity(4.f);
 	SunLight->SetLightColor(FLinearColor(1.f, 0.95f, 0.85f));
 	SunLight->SetWorldRotation(FRotator(-30.f, 45.f, 0.f));
 	SunLight->RegisterComponent();
 
-	// Ambient fill
-	UDirectionalLightComponent* FillLight = NewObject<UDirectionalLightComponent>(this);
-	FillLight->SetupAttachment(RootComponent);
-	FillLight->SetIntensity(0.5f);
-	FillLight->SetLightColor(FLinearColor(0.3f, 0.4f, 0.6f));
-	FillLight->SetWorldRotation(FRotator(20.f, -135.f, 0.f));
-	FillLight->RegisterComponent();
+	// Sun visual — opposite to light direction (light comes FROM the sun)
+	UStaticMesh* SphereMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere"));
 
-	// Rim light from below
-	UDirectionalLightComponent* RimLight = NewObject<UDirectionalLightComponent>(this);
-	RimLight->SetupAttachment(RootComponent);
-	RimLight->SetIntensity(0.3f);
-	RimLight->SetLightColor(FLinearColor(0.2f, 0.15f, 0.3f));
-	RimLight->SetWorldRotation(FRotator(60.f, 90.f, 0.f));
-	RimLight->RegisterComponent();
+	// Try unlit emissive material (no shadows on sun)
+	UMaterialInterface* SunBaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/EmissiveMeshMaterial.EmissiveMeshMaterial"));
+	if (!SunBaseMat)
+	{
+		SunBaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial"));
+	}
+
+	if (SphereMesh && SunBaseMat)
+	{
+		// Negate: light shines in FRotator(-30,45,0) direction, sun is opposite
+		FVector SunDir = -FRotator(-30.f, 45.f, 0.f).Vector();
+		FVector SunPos = SunDir * 500000.f;
+
+		UStaticMeshComponent* SunMesh = NewObject<UStaticMeshComponent>(this);
+		SunMesh->SetupAttachment(RootComponent);
+		SunMesh->SetStaticMesh(SphereMesh);
+		SunMesh->SetWorldLocation(SunPos);
+		SunMesh->SetWorldScale3D(FVector(3000.f));
+		SunMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		SunMesh->SetCastShadow(false);
+
+		UMaterialInstanceDynamic* DynMat = UMaterialInstanceDynamic::Create(SunBaseMat, this);
+		if (DynMat)
+		{
+			// Very bright warm-white: bloom saturates center to white, edges show warm orange tint
+			FLinearColor SunColor = FLinearColor(1.f, 0.9f, 0.7f) * 300.f;
+			DynMat->SetVectorParameterValue(TEXT("Color"), SunColor);
+			DynMat->SetVectorParameterValue(TEXT("EmissiveColor"), SunColor);
+			SunMesh->SetMaterial(0, DynMat);
+		}
+
+		SunMesh->RegisterComponent();
+	}
+}
+
+void ASpaceEnvironment::CreateSkybox()
+{
+	UStaticMesh* SphereMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere"));
+	if (!SphereMesh) return;
+
+	// Try to load skybox texture from disk (NASA deep star map)
+	UMaterialInterface* SkyMat = nullptr;
+	bool bUsingTexture = false;
+
+	FString TexturePath = FPaths::ProjectContentDir() / TEXT("Textures/SpaceSkybox.jpg");
+	TArray<uint8> RawData;
+	if (FFileHelper::LoadFileToArray(RawData, *TexturePath))
+	{
+		UTexture2D* SkyTex = FImageUtils::ImportBufferAsTexture2D(RawData);
+		if (SkyTex)
+		{
+#if WITH_EDITORONLY_DATA
+			UMaterial* Mat = NewObject<UMaterial>(GetTransientPackage(), NAME_None, RF_Transient);
+			Mat->BlendMode = BLEND_Opaque;
+			Mat->SetShadingModel(MSM_Unlit);
+			Mat->TwoSided = true;
+
+			UMaterialExpressionTextureSample* TexSample = NewObject<UMaterialExpressionTextureSample>(Mat);
+			TexSample->Texture = SkyTex;
+			TexSample->SamplerType = SAMPLERTYPE_Color;
+
+			auto* EdData = Mat->GetEditorOnlyData();
+			if (EdData)
+			{
+				EdData->ExpressionCollection.Expressions.Add(TexSample);
+				EdData->EmissiveColor.Connect(0, TexSample);
+			}
+
+			Mat->PreEditChange(nullptr);
+			Mat->PostEditChange();
+			SkyMat = Mat;
+			bUsingTexture = true;
+			UE_LOG(LogTemp, Warning, TEXT("Skybox: Loaded texture from %s"), *TexturePath);
+#endif
+		}
+	}
+
+	if (!SkyMat)
+	{
+		SkyMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial"));
+		UE_LOG(LogTemp, Warning, TEXT("Skybox: Using fallback dark material"));
+	}
+	if (!SkyMat) return;
+
+	// Massive inverted sphere as space backdrop
+	UStaticMeshComponent* SkyMesh = NewObject<UStaticMeshComponent>(this);
+	SkyMesh->SetupAttachment(RootComponent);
+	SkyMesh->SetStaticMesh(SphereMesh);
+	SkyMesh->SetWorldLocation(FVector::ZeroVector);
+	SkyMesh->SetWorldScale3D(FVector(-500000.f));
+	SkyMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	SkyMesh->SetCastShadow(false);
+
+	if (bUsingTexture)
+	{
+		SkyMesh->SetMaterial(0, SkyMat);
+	}
+	else
+	{
+		UMaterialInstanceDynamic* DynMat = UMaterialInstanceDynamic::Create(SkyMat, this);
+		if (DynMat)
+		{
+			DynMat->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.002f, 0.002f, 0.008f));
+			SkyMesh->SetMaterial(0, DynMat);
+		}
+	}
+
+	SkyMesh->RegisterComponent();
+}
+
+void ASpaceEnvironment::CreatePlanet()
+{
+	UStaticMesh* SphereMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere"));
+	UMaterialInterface* BaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial"));
+	if (!SphereMesh || !BaseMat) return;
+
+	// Distant gas giant — purely decorative, impossibly far
+	FVector PlanetPos = FVector(-5000000.f, 3000000.f, -1500000.f);
+
+	UStaticMeshComponent* PlanetMesh = NewObject<UStaticMeshComponent>(this);
+	PlanetMesh->SetupAttachment(RootComponent);
+	PlanetMesh->SetStaticMesh(SphereMesh);
+	PlanetMesh->SetWorldLocation(PlanetPos);
+	PlanetMesh->SetWorldScale3D(FVector(80000.f));
+	PlanetMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	PlanetMesh->SetCastShadow(false);
+
+	UMaterialInstanceDynamic* PlanetMat = UMaterialInstanceDynamic::Create(BaseMat, this);
+	if (PlanetMat)
+	{
+		PlanetMat->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.05f, 0.15f, 0.25f) * 2.f);
+		PlanetMesh->SetMaterial(0, PlanetMat);
+	}
+	PlanetMesh->RegisterComponent();
+
+	// Atmospheric glow shell
+	UStaticMeshComponent* AtmoMesh = NewObject<UStaticMeshComponent>(this);
+	AtmoMesh->SetupAttachment(RootComponent);
+	AtmoMesh->SetStaticMesh(SphereMesh);
+	AtmoMesh->SetWorldLocation(PlanetPos);
+	AtmoMesh->SetWorldScale3D(FVector(83000.f));
+	AtmoMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	AtmoMesh->SetCastShadow(false);
+
+	UMaterialInstanceDynamic* AtmoMat = UMaterialInstanceDynamic::Create(BaseMat, this);
+	if (AtmoMat)
+	{
+		AtmoMat->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.1f, 0.3f, 0.5f) * 3.f);
+		AtmoMesh->SetMaterial(0, AtmoMat);
+	}
+	AtmoMesh->RegisterComponent();
 }

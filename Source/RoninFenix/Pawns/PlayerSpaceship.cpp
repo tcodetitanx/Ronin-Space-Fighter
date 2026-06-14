@@ -1,6 +1,8 @@
 #include "Pawns/PlayerSpaceship.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Camera/CameraComponent.h"
+#include "Components/AudioComponent.h"
+#include "Sound/SoundWave.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputMappingContext.h"
@@ -9,19 +11,24 @@
 #include "Components/SpaceshipMovementComponent.h"
 #include "Components/WeaponComponent.h"
 #include "Components/TargetingComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Kismet/GameplayStatics.h"
 
 APlayerSpaceship::APlayerSpaceship()
 {
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
-	CameraBoom->TargetArmLength = 800.f;
-	CameraBoom->SetRelativeLocation(FVector(-100.f, 0.f, 100.f));
-	CameraBoom->SetRelativeRotation(FRotator(-10.f, 0.f, 0.f));
+	CameraBoom->TargetArmLength = 400.f;
+	CameraBoom->SetRelativeLocation(FVector(0.f, 0.f, 0.f));
+	CameraBoom->SetRelativeRotation(FRotator(0.f, 0.f, 0.f));
+	CameraBoom->SocketOffset = FVector(0.f, 0.f, 120.f);
 	CameraBoom->bDoCollisionTest = false;
 	CameraBoom->bEnableCameraLag = true;
-	CameraBoom->CameraLagSpeed = 5.f;
+	CameraBoom->CameraLagSpeed = 10.f;
 	CameraBoom->bEnableCameraRotationLag = true;
-	CameraBoom->CameraRotationLagSpeed = 8.f;
+	CameraBoom->CameraRotationLagSpeed = 12.f;
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
@@ -32,11 +39,132 @@ void APlayerSpaceship::BeginPlay()
 {
 	Super::BeginPlay();
 	CreateInputActions();
+
+	// Load and start thruster audio loops
+	USoundWave* HumSound = LoadObject<USoundWave>(nullptr, TEXT("/Game/Sounds/ThrusterHum1.ThrusterHum1"));
+	USoundWave* LowSound = LoadObject<USoundWave>(nullptr, TEXT("/Game/Sounds/ThrusterLowLoop1.ThrusterLowLoop1"));
+
+	UE_LOG(LogTemp, Warning, TEXT("PlayerSpaceship BeginPlay: HumSound=%s LowSound=%s"),
+		HumSound ? TEXT("LOADED") : TEXT("NULL"),
+		LowSound ? TEXT("LOADED") : TEXT("NULL"));
+
+	if (HumSound)
+	{
+		HumSound->bLooping = true;
+		ThrusterHumAudio = UGameplayStatics::SpawnSoundAttached(HumSound, RootComponent);
+		if (ThrusterHumAudio)
+		{
+			ThrusterHumAudio->SetPitchMultiplier(0.7f);
+			ThrusterHumAudio->Play();
+		}
+	}
+
+	if (LowSound)
+	{
+		LowSound->bLooping = true;
+		ThrusterLowAudio = UGameplayStatics::SpawnSoundAttached(LowSound, RootComponent);
+		if (ThrusterLowAudio)
+		{
+			ThrusterLowAudio->SetPitchMultiplier(0.5f);
+			ThrusterLowAudio->Play();
+		}
+	}
+
+	// Engine exhaust ring buffer trail — world-space glowing planes left behind
+	UStaticMesh* ExhMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane"));
+	UMaterialInterface* ExhBaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial"));
+	if (ExhMesh && ExhBaseMat)
+	{
+		EngineTrailDots.SetNum(EngineTrailCount);
+		for (int32 i = 0; i < EngineTrailCount; ++i)
+		{
+			UStaticMeshComponent* ExhDot = NewObject<UStaticMeshComponent>(this);
+			ExhDot->SetupAttachment(RootComponent);
+			ExhDot->SetAbsolute(true, true, true);
+			ExhDot->SetStaticMesh(ExhMesh);
+			ExhDot->SetWorldLocation(GetActorLocation());
+			ExhDot->SetWorldScale3D(FVector(0.15f));
+			ExhDot->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			ExhDot->SetCastShadow(false);
+			ExhDot->SetVisibility(false);
+
+			UMaterialInstanceDynamic* DynMat = UMaterialInstanceDynamic::Create(ExhBaseMat, this);
+			if (DynMat)
+			{
+				DynMat->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.4f, 0.2f, 0.05f) * 15.f);
+				ExhDot->SetMaterial(0, DynMat);
+			}
+			ExhDot->RegisterComponent();
+			EngineTrailDots[i] = ExhDot;
+		}
+	}
 }
 
 void APlayerSpaceship::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	// Steer ship based on reticle offset (normalized -1 to 1)
+	if (GetMovementComp() && ReticleRadius > 0.f)
+	{
+		float NormYaw = ReticleOffset.X / ReticleRadius;
+		float NormPitch = ReticleOffset.Y / ReticleRadius;
+		GetMovementComp()->SetYawInput(NormYaw);
+		GetMovementComp()->SetPitchInput(-NormPitch);
+	}
+
+	// Modulate thruster pitch based on speed
+	if (GetMovementComp())
+	{
+		float BoostMax = GetMovementComp()->Stats.BoostMaxSpeed;
+		float SpeedPercent = (BoostMax > 0.f) ? FMath::Clamp(GetMovementComp()->GetCurrentSpeed() / BoostMax, 0.f, 1.f) : 0.f;
+
+		if (ThrusterHumAudio)
+		{
+			ThrusterHumAudio->SetPitchMultiplier(0.7f + SpeedPercent * 0.8f);
+			ThrusterHumAudio->SetVolumeMultiplier(ThrusterHumVolume);
+		}
+		if (ThrusterLowAudio)
+		{
+			ThrusterLowAudio->SetPitchMultiplier(0.5f + SpeedPercent * 0.6f);
+			ThrusterLowAudio->SetVolumeMultiplier(ThrusterLowVolume);
+		}
+	}
+
+	// Apply live-editable camera settings
+	CameraBoom->TargetArmLength = CameraDistance;
+	CameraBoom->SocketOffset = FVector(0.f, 0.f, CameraHeight);
+
+	// Trace from reticle screen position to find where it points in world space
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		int32 ViewX, ViewY;
+		PC->GetViewportSize(ViewX, ViewY);
+
+		float ReticleScreenX = ViewX * 0.5f + ReticleOffset.X;
+		float ReticleScreenY = ViewY * 0.5f + ReticleOffset.Y;
+
+		FVector WorldLoc, WorldDir;
+		if (PC->DeprojectScreenPositionToWorld(ReticleScreenX, ReticleScreenY, WorldLoc, WorldDir))
+		{
+			FHitResult Hit;
+			FVector TraceEnd = WorldLoc + WorldDir * 100000.f;
+			FCollisionQueryParams Params;
+			Params.AddIgnoredActor(this);
+
+			FVector AimTarget;
+			if (GetWorld()->LineTraceSingleByChannel(Hit, WorldLoc, TraceEnd, ECC_Visibility, Params))
+			{
+				AimTarget = Hit.ImpactPoint;
+			}
+			else
+			{
+				AimTarget = TraceEnd;
+			}
+
+			GetWeaponComp()->SetAimPoint(AimTarget);
+		}
+	}
 
 	if (bBarrelRolling)
 	{
@@ -49,6 +177,37 @@ void APlayerSpaceship::Tick(float DeltaTime)
 			bBarrelRolling = false;
 			BarrelRollTimer = 0.f;
 			GetMovementComp()->SetRollInput(0.f);
+		}
+	}
+
+	// Update engine exhaust ring buffer trail
+	EngineTrailTimer += DeltaTime;
+	if (EngineTrailTimer >= EngineTrailInterval && EngineTrailDots.Num() > 0)
+	{
+		EngineTrailTimer = 0.f;
+		FVector TrailPos = GetActorLocation() + GetActorForwardVector() * -250.f;
+		EngineTrailDots[EngineTrailIndex]->SetWorldLocation(TrailPos);
+		EngineTrailDots[EngineTrailIndex]->SetVisibility(true);
+		EngineTrailIndex = (EngineTrailIndex + 1) % EngineTrailDots.Num();
+	}
+
+	// Billboard: orient trail planes to face camera
+	if (APlayerController* PC2 = Cast<APlayerController>(GetController()))
+	{
+		if (PC2->PlayerCameraManager)
+		{
+			FVector CamLoc = PC2->PlayerCameraManager->GetCameraLocation();
+			for (int32 i = 0; i < EngineTrailDots.Num(); ++i)
+			{
+				if (EngineTrailDots[i] && EngineTrailDots[i]->IsVisible())
+				{
+					FVector ToCamera = CamLoc - EngineTrailDots[i]->GetComponentLocation();
+					if (ToCamera.SizeSquared() > 1.f)
+					{
+						EngineTrailDots[i]->SetWorldRotation(FRotationMatrix::MakeFromZ(ToCamera.GetSafeNormal()).Rotator());
+					}
+				}
+			}
 		}
 	}
 }
@@ -193,14 +352,21 @@ void APlayerSpaceship::HandleThrottle(const FInputActionValue& Value)
 void APlayerSpaceship::HandleSteering(const FInputActionValue& Value)
 {
 	FVector2D Input = Value.Get<FVector2D>();
-	GetMovementComp()->SetYawInput(Input.X * 0.5f);
-	GetMovementComp()->SetPitchInput(Input.Y * 0.5f);
+	// Accumulate mouse delta into reticle offset (negate Y so mouse-up = reticle-up)
+	ReticleOffset.X += Input.X * SteeringSensitivity;
+	ReticleOffset.Y -= Input.Y * SteeringSensitivity;
+
+	// Clamp to radius
+	float Mag = ReticleOffset.Size();
+	if (Mag > ReticleRadius)
+	{
+		ReticleOffset = ReticleOffset.GetSafeNormal() * ReticleRadius;
+	}
 }
 
 void APlayerSpaceship::HandleSteeringStop(const FInputActionValue& Value)
 {
-	GetMovementComp()->SetYawInput(0.f);
-	GetMovementComp()->SetPitchInput(0.f);
+	// Reticle stays where it is — ship keeps steering toward it
 }
 
 void APlayerSpaceship::HandleThrottleStop(const FInputActionValue& Value)

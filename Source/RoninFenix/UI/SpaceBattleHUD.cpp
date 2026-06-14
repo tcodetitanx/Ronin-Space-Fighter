@@ -50,31 +50,58 @@ void ASpaceBattleHUD::DrawHUD()
 
 void ASpaceBattleHUD::DrawCrosshair()
 {
+	APlayerSpaceship* Ship = GetPlayerShip();
+
 	float CenterX = Canvas->ClipX * 0.5f;
 	float CenterY = Canvas->ClipY * 0.5f;
-	float Size = 20.f;
-	float Thickness = 2.f;
 
-	FLinearColor CrosshairColor(0.f, 1.f, 0.f, 0.8f);
-
-	// Cross lines
-	DrawLine(CenterX - Size, CenterY, CenterX - Size * 0.4f, CenterY, CrosshairColor, Thickness);
-	DrawLine(CenterX + Size * 0.4f, CenterY, CenterX + Size, CenterY, CrosshairColor, Thickness);
-	DrawLine(CenterX, CenterY - Size, CenterX, CenterY - Size * 0.4f, CrosshairColor, Thickness);
-	DrawLine(CenterX, CenterY + Size * 0.4f, CenterX, CenterY + Size, CrosshairColor, Thickness);
-
-	// Circle
-	int32 Segments = 32;
-	float Radius = Size * 1.5f;
-	for (int32 i = 0; i < Segments; ++i)
+	FVector2D Offset = FVector2D::ZeroVector;
+	if (Ship)
 	{
-		float A1 = 2.f * PI * i / Segments;
-		float A2 = 2.f * PI * (i + 1) / Segments;
-		DrawLine(
-			CenterX + Radius * FMath::Cos(A1), CenterY + Radius * FMath::Sin(A1),
-			CenterX + Radius * FMath::Cos(A2), CenterY + Radius * FMath::Sin(A2),
-			CrosshairColor * 0.5f, 1.f);
+		Offset = Ship->GetReticleOffset();
 	}
+
+	float RX = CenterX + Offset.X;
+	float RY = CenterY + Offset.Y;
+
+	FLinearColor Bright(1.f, 1.f, 1.f, 0.9f);
+	FLinearColor Dim(1.f, 1.f, 1.f, 0.5f);
+
+	// --- Center dot ---
+	DrawRect(Bright, RX - 2.f, RY - 2.f, 4.f, 4.f);
+
+	// --- 4 chevrons pointing inward ---
+	float ChevDist = 15.f;
+	float ChevLen = 8.f;
+	float ChevW = 6.f;
+	// Top chevron (V pointing down)
+	DrawLine(RX - ChevW, RY - ChevDist - ChevLen, RX, RY - ChevDist, Bright, 1.5f);
+	DrawLine(RX + ChevW, RY - ChevDist - ChevLen, RX, RY - ChevDist, Bright, 1.5f);
+	// Bottom chevron (V pointing up)
+	DrawLine(RX - ChevW, RY + ChevDist + ChevLen, RX, RY + ChevDist, Bright, 1.5f);
+	DrawLine(RX + ChevW, RY + ChevDist + ChevLen, RX, RY + ChevDist, Bright, 1.5f);
+	// Left chevron (V pointing right)
+	DrawLine(RX - ChevDist - ChevLen, RY - ChevW, RX - ChevDist, RY, Bright, 1.5f);
+	DrawLine(RX - ChevDist - ChevLen, RY + ChevW, RX - ChevDist, RY, Bright, 1.5f);
+	// Right chevron (V pointing left)
+	DrawLine(RX + ChevDist + ChevLen, RY - ChevW, RX + ChevDist, RY, Bright, 1.5f);
+	DrawLine(RX + ChevDist + ChevLen, RY + ChevW, RX + ChevDist, RY, Bright, 1.5f);
+
+	// --- Outer diamond corners ---
+	float DD = 30.f;
+	float CL = 7.f;
+	// Top
+	DrawLine(RX - CL, RY - DD + CL, RX, RY - DD, Dim, 1.f);
+	DrawLine(RX + CL, RY - DD + CL, RX, RY - DD, Dim, 1.f);
+	// Bottom
+	DrawLine(RX - CL, RY + DD - CL, RX, RY + DD, Dim, 1.f);
+	DrawLine(RX + CL, RY + DD - CL, RX, RY + DD, Dim, 1.f);
+	// Left
+	DrawLine(RX - DD + CL, RY - CL, RX - DD, RY, Dim, 1.f);
+	DrawLine(RX - DD + CL, RY + CL, RX - DD, RY, Dim, 1.f);
+	// Right
+	DrawLine(RX + DD - CL, RY - CL, RX + DD, RY, Dim, 1.f);
+	DrawLine(RX + DD - CL, RY + CL, RX + DD, RY, Dim, 1.f);
 }
 
 void ASpaceBattleHUD::DrawHealthShieldBars()
