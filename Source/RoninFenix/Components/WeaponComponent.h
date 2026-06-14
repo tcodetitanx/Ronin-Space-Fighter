@@ -1,0 +1,62 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Components/ActorComponent.h"
+#include "SpaceTypes.h"
+#include "WeaponComponent.generated.h"
+
+UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
+class RONINFENIX_API UWeaponComponent : public UActorComponent
+{
+	GENERATED_BODY()
+
+public:
+	UWeaponComponent();
+
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+
+	void StartFiringLasers();
+	void StopFiringLasers();
+	void FireMissile(AActor* Target);
+
+	UFUNCTION(BlueprintCallable)
+	int32 GetMissilesRemaining() const { return MissilesRemaining; }
+
+	UFUNCTION(BlueprintCallable)
+	float GetOverheatPercent() const { return CurrentHeat / MaxHeat; }
+
+	UFUNCTION(BlueprintCallable)
+	bool IsOverheated() const { return bOverheated; }
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon")
+	float LaserDamage = 8.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon")
+	float LaserFireRate = 8.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon")
+	float MissileDamage = 40.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon")
+	int32 MaxMissiles = 4;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon")
+	ESpaceTeam OwnerTeam = ESpaceTeam::Neutral;
+
+	void SetWeaponStats(float InLaserDamage, float InFireRate, float InMissileDamage, int32 InMaxMissiles);
+
+private:
+	void FireLaser();
+
+	bool bFiringLasers = false;
+	float FireCooldown = 0.f;
+	int32 MissilesRemaining = 4;
+	float CurrentHeat = 0.f;
+	float MaxHeat = 100.f;
+	float HeatPerShot = 8.f;
+	float CooldownRate = 30.f;
+	bool bOverheated = false;
+	float OverheatThreshold = 100.f;
+	float CooldownThreshold = 30.f;
+	bool bAlternateBarrel = false;
+};
