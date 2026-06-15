@@ -7,6 +7,7 @@
 #include "Components/WeaponComponent.h"
 #include "Components/TargetingComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Actors/Asteroid.h"
 
 ASpaceshipBase::ASpaceshipBase()
@@ -33,6 +34,7 @@ ASpaceshipBase::ASpaceshipBase()
 	EngineLight->SetIntensity(8000.f);
 	EngineLight->SetAttenuationRadius(500.f);
 	EngineLight->SetLightColor(FLinearColor(1.f, 0.5f, 0.2f));
+	EngineLight->SetCastShadows(false);
 }
 
 void ASpaceshipBase::BeginPlay()
@@ -56,6 +58,24 @@ void ASpaceshipBase::Tick(float DeltaTime)
 		float SpeedPct = MovementComp->GetCurrentSpeed() / ShipStats.MaxSpeed;
 		EngineLight->SetIntensity(2000.f + 8000.f * SpeedPct);
 	}
+
+	// Oscillate thruster flames
+	if (ThrusterFlames.Num() > 0)
+	{
+		float Time = GetWorld()->GetTimeSeconds();
+		float ThrottlePct = MovementComp ? (MovementComp->GetCurrentSpeed() / FMath::Max(ShipStats.MaxSpeed, 1.f)) : 0.5f;
+		float BaseScale = 0.15f + 0.25f * ThrottlePct;
+		for (int32 i = 0; i < ThrusterFlames.Num(); ++i)
+		{
+			if (ThrusterFlames[i])
+			{
+				float Pulse = FMath::Sin(Time * (8.f + i * 3.f)) * 0.3f + 1.f;
+				float Flicker = FMath::Sin(Time * 23.f + i * 7.f) * 0.1f;
+				float S = BaseScale * (Pulse + Flicker) * (i == 0 ? 1.f : 0.6f);
+				ThrusterFlames[i]->SetRelativeScale3D(FVector(S, S * 0.8f, S * 0.8f));
+			}
+		}
+	}
 }
 
 void ASpaceshipBase::SetTeam(ESpaceTeam InTeam)
@@ -75,30 +95,48 @@ void ASpaceshipBase::InitializeShip()
 {
 	ApplyShipClassStats();
 
-	// Enemies move at half speed
+	// Enemies: half speed and half health
 	if (Team == ESpaceTeam::Omega)
 	{
 		ShipStats.MaxSpeed *= 0.5f;
 		ShipStats.BoostMaxSpeed *= 0.5f;
 		ShipStats.Acceleration *= 0.5f;
+		ShipStats.MaxHealth *= 0.5f;
+		ShipStats.MaxShield *= 0.5f;
 	}
 
-	// Determine which mesh to load based on player vs AI
+	// Determine which mesh to load based on player/ally/enemy
 	FString MeshPath;
 	bool bIsPlayer = IsA<APlayerSpaceship>();
 	if (bIsPlayer)
 	{
 		MeshPath = TEXT("/Game/Meshes/mainShip/StaticMeshes/mainShip.mainShip");
 	}
+	else if (Team == ESpaceTeam::Alpha)
+	{
+		MeshPath = TEXT("/Game/Meshes/ally/StaticMeshes/ally.ally");
+	}
 	else
 	{
-		// All AI ships use the same mesh — differentiated by team color
 		MeshPath = TEXT("/Game/Meshes/enemyShip/StaticMeshes/enemyShip.enemyShip");
 	}
 
 	UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *MeshPath);
 	if (Mesh)
 	{
+#if WITH_EDITOR
+		if (bIsPlayer)
+		{
+			for (int32 LODIdx = 0; LODIdx < Mesh->GetNumSourceModels(); ++LODIdx)
+			{
+				auto& Src = Mesh->GetSourceModel(LODIdx);
+				Src.BuildSettings.bRecomputeNormals = true;
+				Src.BuildSettings.bRecomputeTangents = true;
+				Src.BuildSettings.bComputeWeightedNormals = true;
+			}
+			Mesh->Build();
+		}
+#endif
 		ShipMesh->SetStaticMesh(Mesh);
 		ShipMesh->SetRelativeScale3D(FVector(4.f));
 		ShipMesh->SetRelativeRotation(FRotator(0.f, 180.f, 0.f));
@@ -131,6 +169,41 @@ void ASpaceshipBase::InitializeShip()
 	WeaponComp->SetWeaponStats(ShipStats.LaserDamage, ShipStats.LaserFireRate, ShipStats.MissileDamage, ShipStats.MissileCount);
 	WeaponComp->OwnerTeam = Team;
 	TargetingComp->SetTeam(Team);
+
+	// Ion thruster flames — emissive blue glow
+	if (ThrusterFlames.Num() == 0)
+	{
+		UStaticMesh* SphereMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere"));
+		UMaterialInterface* EmissiveMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/EmissiveMeshMaterial.EmissiveMeshMaterial"));
+		if (!EmissiveMat)
+			EmissiveMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial"));
+		if (SphereMesh && EmissiveMat)
+		{
+			float Scales[] = { 0.4f, 0.25f };
+			float Offsets[] = { -270.f, -245.f };
+			float Intensities[] = { 15.f, 30.f };
+			for (int32 i = 0; i < 2; ++i)
+			{
+				UStaticMeshComponent* Flame = NewObject<UStaticMeshComponent>(this);
+				Flame->SetupAttachment(RootComponent);
+				Flame->SetStaticMesh(SphereMesh);
+				Flame->SetRelativeLocation(FVector(Offsets[i], 0.f, 0.f));
+				Flame->SetRelativeScale3D(FVector(Scales[i]));
+				Flame->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+				Flame->SetCastShadow(false);
+				UMaterialInstanceDynamic* DynMat = UMaterialInstanceDynamic::Create(EmissiveMat, this);
+				if (DynMat)
+				{
+					FLinearColor IonColor = FLinearColor(0.3f, 0.6f, 1.f) * Intensities[i];
+					DynMat->SetVectorParameterValue(TEXT("Color"), IonColor);
+					DynMat->SetVectorParameterValue(TEXT("EmissiveColor"), IonColor);
+					Flame->SetMaterial(0, DynMat);
+				}
+				Flame->RegisterComponent();
+				ThrusterFlames.Add(Flame);
+			}
+		}
+	}
 }
 
 void ASpaceshipBase::OnShipDestroyed()
@@ -171,9 +244,9 @@ void ASpaceshipBase::ApplyShipClassStats()
 	case EShipClass::Fighter:
 		ShipStats.MaxHealth = 100.f;
 		ShipStats.MaxShield = 50.f;
-		ShipStats.MaxSpeed = 4000.f;
-		ShipStats.BoostMaxSpeed = 7000.f;
-		ShipStats.Acceleration = 4000.f;
+		ShipStats.MaxSpeed = 8000.f;
+		ShipStats.BoostMaxSpeed = 14000.f;
+		ShipStats.Acceleration = 8000.f;
 		ShipStats.PitchRate = 80.f;
 		ShipStats.YawRate = 80.f;
 		ShipStats.RollRate = 120.f;
@@ -186,9 +259,9 @@ void ASpaceshipBase::ApplyShipClassStats()
 	case EShipClass::Interceptor:
 		ShipStats.MaxHealth = 70.f;
 		ShipStats.MaxShield = 30.f;
-		ShipStats.MaxSpeed = 5500.f;
-		ShipStats.BoostMaxSpeed = 9000.f;
-		ShipStats.Acceleration = 6000.f;
+		ShipStats.MaxSpeed = 11000.f;
+		ShipStats.BoostMaxSpeed = 18000.f;
+		ShipStats.Acceleration = 12000.f;
 		ShipStats.PitchRate = 100.f;
 		ShipStats.YawRate = 100.f;
 		ShipStats.RollRate = 150.f;
@@ -201,9 +274,9 @@ void ASpaceshipBase::ApplyShipClassStats()
 	case EShipClass::Bomber:
 		ShipStats.MaxHealth = 200.f;
 		ShipStats.MaxShield = 100.f;
-		ShipStats.MaxSpeed = 2800.f;
-		ShipStats.BoostMaxSpeed = 4500.f;
-		ShipStats.Acceleration = 2400.f;
+		ShipStats.MaxSpeed = 5600.f;
+		ShipStats.BoostMaxSpeed = 9000.f;
+		ShipStats.Acceleration = 4800.f;
 		ShipStats.PitchRate = 50.f;
 		ShipStats.YawRate = 50.f;
 		ShipStats.RollRate = 70.f;

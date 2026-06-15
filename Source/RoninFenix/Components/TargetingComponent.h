@@ -45,5 +45,5 @@ private:
 	bool bLockingOn = false;
 	bool bMissileLocked = false;
 	float LockOnProgress = 0.f;
-	float LockOnTime = 2.f;
+	float LockOnTime = 1.f;
 };

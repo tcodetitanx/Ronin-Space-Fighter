@@ -5,8 +5,6 @@
 #include "Components/HealthShieldComponent.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Materials/MaterialInstanceDynamic.h"
-#include "GameFramework/PlayerController.h"
-#include "Camera/PlayerCameraManager.h"
 
 AHomingMissile::AHomingMissile()
 {
@@ -34,6 +32,8 @@ AHomingMissile::AHomingMissile()
 	LightComp->SetIntensity(20000.f);
 	LightComp->SetAttenuationRadius(800.f);
 	LightComp->SetLightColor(FLinearColor(1.f, 0.5f, 0.1f));
+	LightComp->SetCastShadows(false);
+	MeshComp->SetCastShadow(false);
 
 	InitialLifeSpan = SpaceConstants::MissileLifetime;
 }
@@ -66,32 +66,28 @@ void AHomingMissile::Initialize(float InDamage, float InSpeed, AActor* InTarget,
 		}
 	}
 
-	// Ring buffer trail — world-space glowing planes left behind as missile moves
-	UStaticMesh* TrailMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane"));
-	if (TrailMesh && BaseMat)
+	// Ion thruster flame on missile tail
+	UStaticMesh* SphereMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere"));
+	UMaterialInterface* EmissiveMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/EmissiveMeshMaterial.EmissiveMeshMaterial"));
+	if (!EmissiveMat) EmissiveMat = BaseMat;
+	if (SphereMesh && EmissiveMat)
 	{
-		TrailDots.SetNum(TrailCount);
-		for (int32 i = 0; i < TrailCount; ++i)
+		ThrusterFlame = NewObject<UStaticMeshComponent>(this);
+		ThrusterFlame->SetupAttachment(RootComponent);
+		ThrusterFlame->SetStaticMesh(SphereMesh);
+		ThrusterFlame->SetRelativeLocation(FVector(-60.f, 0.f, 0.f));
+		ThrusterFlame->SetRelativeScale3D(FVector(0.3f, 0.15f, 0.15f));
+		ThrusterFlame->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		ThrusterFlame->SetCastShadow(false);
+		UMaterialInstanceDynamic* FlameMat = UMaterialInstanceDynamic::Create(EmissiveMat, this);
+		if (FlameMat)
 		{
-			UStaticMeshComponent* Dot = NewObject<UStaticMeshComponent>(this);
-			Dot->SetupAttachment(RootComponent);
-			Dot->SetAbsolute(true, true, true);
-			Dot->SetStaticMesh(TrailMesh);
-			Dot->SetWorldLocation(GetActorLocation());
-			Dot->SetWorldScale3D(FVector(0.08f));
-			Dot->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-			Dot->SetCastShadow(false);
-			Dot->SetVisibility(false);
-
-			UMaterialInstanceDynamic* TrailMat = UMaterialInstanceDynamic::Create(BaseMat, this);
-			if (TrailMat)
-			{
-				TrailMat->SetVectorParameterValue(TEXT("Color"), FLinearColor(1.f, 0.5f, 0.1f) * 15.f);
-				Dot->SetMaterial(0, TrailMat);
-			}
-			Dot->RegisterComponent();
-			TrailDots[i] = Dot;
+			FLinearColor IonColor = FLinearColor(0.3f, 0.6f, 1.f) * 25.f;
+			FlameMat->SetVectorParameterValue(TEXT("Color"), IonColor);
+			FlameMat->SetVectorParameterValue(TEXT("EmissiveColor"), IonColor);
+			ThrusterFlame->SetMaterial(0, FlameMat);
 		}
+		ThrusterFlame->RegisterComponent();
 	}
 }
 
@@ -143,33 +139,13 @@ void AHomingMissile::Tick(float DeltaTime)
 
 	SetActorLocation(End);
 
-	// Update ring buffer trail
-	TrailTimer += DeltaTime;
-	if (TrailTimer >= TrailInterval && TrailDots.Num() > 0)
+	// Oscillate ion thruster flame
+	if (ThrusterFlame)
 	{
-		TrailTimer = 0.f;
-		TrailDots[TrailIndex]->SetWorldLocation(GetActorLocation());
-		TrailDots[TrailIndex]->SetVisibility(true);
-		TrailIndex = (TrailIndex + 1) % TrailDots.Num();
-	}
-
-	// Billboard: orient trail planes to face camera
-	if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
-	{
-		if (PC->PlayerCameraManager)
-		{
-			FVector CamLoc = PC->PlayerCameraManager->GetCameraLocation();
-			for (int32 i = 0; i < TrailDots.Num(); ++i)
-			{
-				if (TrailDots[i] && TrailDots[i]->IsVisible())
-				{
-					FVector ToCamera = CamLoc - TrailDots[i]->GetComponentLocation();
-					if (ToCamera.SizeSquared() > 1.f)
-					{
-						TrailDots[i]->SetWorldRotation(FRotationMatrix::MakeFromZ(ToCamera.GetSafeNormal()).Rotator());
-					}
-				}
-			}
-		}
+		float Time = GetWorld()->GetTimeSeconds();
+		float Pulse = FMath::Sin(Time * 12.f) * 0.3f + 1.f;
+		float Flicker = FMath::Sin(Time * 31.f) * 0.1f;
+		float S = 0.3f * (Pulse + Flicker);
+		ThrusterFlame->SetRelativeScale3D(FVector(S, S * 0.5f, S * 0.5f));
 	}
 }

@@ -26,7 +26,7 @@ public:
 
 	/** Distance of camera behind the ship (tweak live in Details panel) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
-	float CameraDistance = 400.f;
+	float CameraDistance = 480.f;
 
 	/** How far above the ship the camera sits — pushes the ship below the reticle */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
@@ -70,7 +70,6 @@ private:
 	void HandleMissile(const FInputActionValue& Value);
 	void HandleBoostStart(const FInputActionValue& Value);
 	void HandleBoostStop(const FInputActionValue& Value);
-	void HandleCycleTarget(const FInputActionValue& Value);
 	void HandleLockOnStart(const FInputActionValue& Value);
 	void HandleLockOnStop(const FInputActionValue& Value);
 	void HandleBarrelRoll(const FInputActionValue& Value);
@@ -103,9 +102,6 @@ private:
 	TObjectPtr<UInputAction> IA_Boost;
 
 	UPROPERTY()
-	TObjectPtr<UInputAction> IA_CycleTarget;
-
-	UPROPERTY()
 	TObjectPtr<UInputAction> IA_LockOn;
 
 	UPROPERTY()
@@ -114,14 +110,6 @@ private:
 	float BarrelRollTimer = 0.f;
 	bool bBarrelRolling = false;
 	float BarrelRollDirection = 1.f;
-
-	// Engine exhaust ring buffer trail
-	UPROPERTY()
-	TArray<TObjectPtr<UStaticMeshComponent>> EngineTrailDots;
-	int32 EngineTrailIndex = 0;
-	float EngineTrailTimer = 0.f;
-	static constexpr int32 EngineTrailCount = 30;
-	static constexpr float EngineTrailInterval = 0.02f;
 
 	UPROPERTY()
 	TObjectPtr<UAudioComponent> ThrusterHumAudio;

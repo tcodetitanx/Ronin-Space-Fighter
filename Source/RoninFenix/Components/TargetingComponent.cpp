@@ -1,5 +1,6 @@
 #include "Components/TargetingComponent.h"
 #include "Components/HealthShieldComponent.h"
+#include "Pawns/SpaceshipBase.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 
@@ -24,9 +25,11 @@ void UTargetingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 		}
 	}
 
-	if (!CurrentTarget)
+	// Continuously update to best enemy in forward cone
+	AActor* BestTarget = FindBestTarget();
+	if (BestTarget != CurrentTarget)
 	{
-		CurrentTarget = FindBestTarget();
+		CurrentTarget = BestTarget;
 		LockOnProgress = 0.f;
 		bMissileLocked = false;
 	}
@@ -83,9 +86,12 @@ AActor* UTargetingComponent::FindBestTarget() const
 	{
 		if (Actor == Owner) continue;
 
-		// Check for IFF tag via component
 		UHealthShieldComponent* Health = Actor->FindComponentByClass<UHealthShieldComponent>();
 		if (!Health || !Health->IsAlive()) continue;
+
+		// Only target enemies
+		ASpaceshipBase* Ship = Cast<ASpaceshipBase>(Actor);
+		if (Ship && Ship->GetTeam() == OwnerTeam) continue;
 
 		FVector ToActor = Actor->GetActorLocation() - OwnerLoc;
 		float Distance = ToActor.Size();

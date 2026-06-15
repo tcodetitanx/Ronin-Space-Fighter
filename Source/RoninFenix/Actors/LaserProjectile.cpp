@@ -27,11 +27,14 @@ ALaserProjectile::ALaserProjectile()
 		MeshComp->SetStaticMesh(SphereMesh.Object);
 	}
 
+	MeshComp->SetCastShadow(false);
+
 	LightComp = CreateDefaultSubobject<UPointLightComponent>(TEXT("Light"));
 	LightComp->SetupAttachment(RootComponent);
 	LightComp->SetIntensity(15000.f);
 	LightComp->SetAttenuationRadius(500.f);
 	LightComp->SetLightColor(FLinearColor(1.f, 0.0f, 0.0f));
+	LightComp->SetCastShadows(false);
 
 	InitialLifeSpan = SpaceConstants::LaserLifetime;
 }
@@ -64,13 +67,17 @@ void ALaserProjectile::Initialize(float InDamage, float InSpeed, ESpaceTeam InTe
 
 	if (MeshComp)
 	{
-		UMaterialInterface* BaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial"));
+		UMaterialInterface* BaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/EmissiveMeshMaterial.EmissiveMeshMaterial"));
+		if (!BaseMat)
+			BaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial"));
 		if (BaseMat)
 		{
 			UMaterialInstanceDynamic* DynMat = UMaterialInstanceDynamic::Create(BaseMat, this);
 			if (DynMat)
 			{
-				DynMat->SetVectorParameterValue(TEXT("Color"), LaserColor * 50.f);
+				FLinearColor EmissiveColor = LaserColor * 80.f;
+				DynMat->SetVectorParameterValue(TEXT("Color"), EmissiveColor);
+				DynMat->SetVectorParameterValue(TEXT("EmissiveColor"), EmissiveColor);
 				MeshComp->SetMaterial(0, DynMat);
 			}
 		}

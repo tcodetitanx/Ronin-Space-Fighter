@@ -64,6 +64,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	TObjectPtr<UPointLightComponent> EngineLight;
 
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> ThrusterFlames;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	ESpaceTeam Team = ESpaceTeam::Neutral;
 

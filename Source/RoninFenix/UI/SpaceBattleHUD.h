@@ -32,6 +32,8 @@ private:
 	void DrawCapitalShipHealth();
 	void DrawMatchOverScreen();
 	void DrawRespawnTimer();
+	void DrawShipOutlines();
+	void DrawEnemyDirectionArrows();
 	void DrawControlsHelp();
 
 	void DrawBar(float X, float Y, float Width, float Height, float Percent, FLinearColor FillColor, FLinearColor BackColor);

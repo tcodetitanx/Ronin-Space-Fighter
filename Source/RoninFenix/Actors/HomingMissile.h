@@ -44,11 +44,7 @@ private:
 	float ArmingTime = 0.3f;
 	float ArmTimer = 0.f;
 
-	// Ring buffer trail
+	// Ion thruster flame
 	UPROPERTY()
-	TArray<TObjectPtr<UStaticMeshComponent>> TrailDots;
-	int32 TrailIndex = 0;
-	float TrailTimer = 0.f;
-	static constexpr int32 TrailCount = 20;
-	static constexpr float TrailInterval = 0.02f;
+	TObjectPtr<UStaticMeshComponent> ThrusterFlame;
 };

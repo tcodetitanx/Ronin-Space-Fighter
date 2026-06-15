@@ -11,9 +11,6 @@
 #include "Components/SpaceshipMovementComponent.h"
 #include "Components/WeaponComponent.h"
 #include "Components/TargetingComponent.h"
-#include "Components/StaticMeshComponent.h"
-#include "Engine/StaticMesh.h"
-#include "Materials/MaterialInstanceDynamic.h"
 #include "Kismet/GameplayStatics.h"
 
 APlayerSpaceship::APlayerSpaceship()
@@ -33,6 +30,27 @@ APlayerSpaceship::APlayerSpaceship()
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->SetFieldOfView(90.f);
+
+	FPostProcessSettings& PP = FollowCamera->PostProcessSettings;
+	FollowCamera->PostProcessBlendWeight = 1.0f;
+
+	PP.bOverride_AutoExposureMethod = true;
+	PP.AutoExposureMethod = AEM_Histogram;
+
+	PP.bOverride_AutoExposureBias = true;
+	PP.AutoExposureBias = 0.f;
+
+	PP.bOverride_AutoExposureMinBrightness = true;
+	PP.AutoExposureMinBrightness = 0.02f;
+
+	PP.bOverride_AutoExposureMaxBrightness = true;
+	PP.AutoExposureMaxBrightness = 10.f;
+
+	PP.bOverride_AutoExposureSpeedUp = true;
+	PP.AutoExposureSpeedUp = 3.f;
+
+	PP.bOverride_AutoExposureSpeedDown = true;
+	PP.AutoExposureSpeedDown = 1.f;
 }
 
 void APlayerSpaceship::BeginPlay()
@@ -41,23 +59,11 @@ void APlayerSpaceship::BeginPlay()
 	CreateInputActions();
 
 	// Load and start thruster audio loops
-	USoundWave* HumSound = LoadObject<USoundWave>(nullptr, TEXT("/Game/Sounds/ThrusterHum1.ThrusterHum1"));
+	// USoundWave* HumSound = LoadObject<USoundWave>(nullptr, TEXT("/Game/Sounds/ThrusterHum1.ThrusterHum1"));
 	USoundWave* LowSound = LoadObject<USoundWave>(nullptr, TEXT("/Game/Sounds/ThrusterLowLoop1.ThrusterLowLoop1"));
 
-	UE_LOG(LogTemp, Warning, TEXT("PlayerSpaceship BeginPlay: HumSound=%s LowSound=%s"),
-		HumSound ? TEXT("LOADED") : TEXT("NULL"),
+	UE_LOG(LogTemp, Warning, TEXT("PlayerSpaceship BeginPlay: LowSound=%s"),
 		LowSound ? TEXT("LOADED") : TEXT("NULL"));
-
-	if (HumSound)
-	{
-		HumSound->bLooping = true;
-		ThrusterHumAudio = UGameplayStatics::SpawnSoundAttached(HumSound, RootComponent);
-		if (ThrusterHumAudio)
-		{
-			ThrusterHumAudio->SetPitchMultiplier(0.7f);
-			ThrusterHumAudio->Play();
-		}
-	}
 
 	if (LowSound)
 	{
@@ -70,34 +76,6 @@ void APlayerSpaceship::BeginPlay()
 		}
 	}
 
-	// Engine exhaust ring buffer trail — world-space glowing planes left behind
-	UStaticMesh* ExhMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane"));
-	UMaterialInterface* ExhBaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial"));
-	if (ExhMesh && ExhBaseMat)
-	{
-		EngineTrailDots.SetNum(EngineTrailCount);
-		for (int32 i = 0; i < EngineTrailCount; ++i)
-		{
-			UStaticMeshComponent* ExhDot = NewObject<UStaticMeshComponent>(this);
-			ExhDot->SetupAttachment(RootComponent);
-			ExhDot->SetAbsolute(true, true, true);
-			ExhDot->SetStaticMesh(ExhMesh);
-			ExhDot->SetWorldLocation(GetActorLocation());
-			ExhDot->SetWorldScale3D(FVector(0.15f));
-			ExhDot->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-			ExhDot->SetCastShadow(false);
-			ExhDot->SetVisibility(false);
-
-			UMaterialInstanceDynamic* DynMat = UMaterialInstanceDynamic::Create(ExhBaseMat, this);
-			if (DynMat)
-			{
-				DynMat->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.4f, 0.2f, 0.05f) * 15.f);
-				ExhDot->SetMaterial(0, DynMat);
-			}
-			ExhDot->RegisterComponent();
-			EngineTrailDots[i] = ExhDot;
-		}
-	}
 }
 
 void APlayerSpaceship::Tick(float DeltaTime)
@@ -180,36 +158,6 @@ void APlayerSpaceship::Tick(float DeltaTime)
 		}
 	}
 
-	// Update engine exhaust ring buffer trail
-	EngineTrailTimer += DeltaTime;
-	if (EngineTrailTimer >= EngineTrailInterval && EngineTrailDots.Num() > 0)
-	{
-		EngineTrailTimer = 0.f;
-		FVector TrailPos = GetActorLocation() + GetActorForwardVector() * -250.f;
-		EngineTrailDots[EngineTrailIndex]->SetWorldLocation(TrailPos);
-		EngineTrailDots[EngineTrailIndex]->SetVisibility(true);
-		EngineTrailIndex = (EngineTrailIndex + 1) % EngineTrailDots.Num();
-	}
-
-	// Billboard: orient trail planes to face camera
-	if (APlayerController* PC2 = Cast<APlayerController>(GetController()))
-	{
-		if (PC2->PlayerCameraManager)
-		{
-			FVector CamLoc = PC2->PlayerCameraManager->GetCameraLocation();
-			for (int32 i = 0; i < EngineTrailDots.Num(); ++i)
-			{
-				if (EngineTrailDots[i] && EngineTrailDots[i]->IsVisible())
-				{
-					FVector ToCamera = CamLoc - EngineTrailDots[i]->GetComponentLocation();
-					if (ToCamera.SizeSquared() > 1.f)
-					{
-						EngineTrailDots[i]->SetWorldRotation(FRotationMatrix::MakeFromZ(ToCamera.GetSafeNormal()).Rotator());
-					}
-				}
-			}
-		}
-	}
 }
 
 void APlayerSpaceship::CreateInputActions()
@@ -231,9 +179,6 @@ void APlayerSpaceship::CreateInputActions()
 
 	IA_Boost = NewObject<UInputAction>(this, TEXT("IA_Boost"));
 	IA_Boost->ValueType = EInputActionValueType::Boolean;
-
-	IA_CycleTarget = NewObject<UInputAction>(this, TEXT("IA_CycleTarget"));
-	IA_CycleTarget->ValueType = EInputActionValueType::Boolean;
 
 	IA_LockOn = NewObject<UInputAction>(this, TEXT("IA_LockOn"));
 	IA_LockOn->ValueType = EInputActionValueType::Boolean;
@@ -285,11 +230,6 @@ void APlayerSpaceship::CreateInputActions()
 		ShipMappingContext->MapKey(IA_Boost, EKeys::LeftShift);
 	}
 
-	// Tab = Cycle Target
-	{
-		ShipMappingContext->MapKey(IA_CycleTarget, EKeys::Tab);
-	}
-
 	// Right Mouse Button = Lock On
 	{
 		ShipMappingContext->MapKey(IA_LockOn, EKeys::RightMouseButton);
@@ -335,8 +275,6 @@ void APlayerSpaceship::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 
 	EIC->BindAction(IA_Boost, ETriggerEvent::Started, this, &APlayerSpaceship::HandleBoostStart);
 	EIC->BindAction(IA_Boost, ETriggerEvent::Completed, this, &APlayerSpaceship::HandleBoostStop);
-
-	EIC->BindAction(IA_CycleTarget, ETriggerEvent::Started, this, &APlayerSpaceship::HandleCycleTarget);
 
 	EIC->BindAction(IA_LockOn, ETriggerEvent::Started, this, &APlayerSpaceship::HandleLockOnStart);
 	EIC->BindAction(IA_LockOn, ETriggerEvent::Completed, this, &APlayerSpaceship::HandleLockOnStop);
@@ -408,11 +346,6 @@ void APlayerSpaceship::HandleBoostStart(const FInputActionValue& Value)
 void APlayerSpaceship::HandleBoostStop(const FInputActionValue& Value)
 {
 	GetMovementComp()->SetBoostInput(false);
-}
-
-void APlayerSpaceship::HandleCycleTarget(const FInputActionValue& Value)
-{
-	GetTargetingComp()->CycleTarget();
 }
 
 void APlayerSpaceship::HandleLockOnStart(const FInputActionValue& Value)

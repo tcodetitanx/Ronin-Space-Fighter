@@ -23,5 +23,10 @@ public class RoninFenix : ModuleRules
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
+
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "UnrealEd", "AssetTools" });
+		}
 	}
 }

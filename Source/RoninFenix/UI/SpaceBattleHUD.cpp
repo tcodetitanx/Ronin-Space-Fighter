@@ -8,9 +8,11 @@
 #include "Components/HealthShieldComponent.h"
 #include "Components/WeaponComponent.h"
 #include "Components/TargetingComponent.h"
+#include "Pawns/SpaceshipBase.h"
 #include "Actors/CapitalShip.h"
 #include "Framework/SpaceBattleGameMode.h"
 #include "Kismet/GameplayStatics.h"
+#include "Camera/PlayerCameraManager.h"
 
 ASpaceBattleHUD::ASpaceBattleHUD()
 {
@@ -40,6 +42,8 @@ void ASpaceBattleHUD::DrawHUD()
 	DrawBoostBar();
 	DrawWeaponInfo();
 	DrawTargetingInfo();
+	DrawShipOutlines();
+	DrawEnemyDirectionArrows();
 	DrawRadar();
 	DrawScoreBoard();
 	DrawKillFeed();
@@ -112,27 +116,53 @@ void ASpaceBattleHUD::DrawHealthShieldBars()
 	UHealthShieldComponent* Health = Ship->GetHealthComp();
 	if (!Health) return;
 
-	float BarWidth = 250.f;
-	float BarHeight = 16.f;
-	float X = 20.f;
-	float Y = Canvas->ClipY - 80.f;
+	float CX = 25.f;
+	float CY = Canvas->ClipY + 5.f;
+	float ShieldRadius = 145.f;
+	float HealthRadius = 120.f;
+	int32 Segments = 40;
+	float ArcThick = 6.f;
+	float StartDeg = 270.f;
+	float ArcSpan = 90.f;
 
-	// Shield bar
-	DrawBar(X, Y, BarWidth, BarHeight, Health->GetShieldPercent(),
-		FLinearColor(0.2f, 0.5f, 1.f, 0.9f), FLinearColor(0.1f, 0.1f, 0.2f, 0.6f));
+	float ShieldPct = Health->GetShieldPercent();
+	float HealthPct = Health->GetHealthPercent();
+	int32 ShieldFilled = FMath::RoundToInt(Segments * ShieldPct);
+	int32 HealthFilled = FMath::RoundToInt(Segments * HealthPct);
 
-	FString ShieldText = FString::Printf(TEXT("SHIELD: %.0f"), Health->GetCurrentShield());
-	DrawText(ShieldText, FLinearColor::White, X + 5.f, Y + 1.f, nullptr, 0.9f);
-
-	// Health bar
-	Y += BarHeight + 4.f;
-	FLinearColor HealthColor = Health->GetHealthPercent() > 0.3f ?
+	FLinearColor ShieldColor(0.2f, 0.5f, 1.f, 0.9f);
+	FLinearColor ShieldBg(0.1f, 0.1f, 0.2f, 0.4f);
+	FLinearColor HealthColor = HealthPct > 0.3f ?
 		FLinearColor(0.2f, 1.f, 0.3f, 0.9f) : FLinearColor(1.f, 0.2f, 0.2f, 0.9f);
-	DrawBar(X, Y, BarWidth, BarHeight, Health->GetHealthPercent(),
-		HealthColor, FLinearColor(0.1f, 0.1f, 0.1f, 0.6f));
+	FLinearColor HealthBg(0.1f, 0.1f, 0.1f, 0.4f);
 
-	FString HealthText = FString::Printf(TEXT("HULL: %.0f"), Health->GetCurrentHealth());
-	DrawText(HealthText, FLinearColor::White, X + 5.f, Y + 1.f, nullptr, 0.9f);
+	for (int32 i = 0; i < Segments; ++i)
+	{
+		float A1 = FMath::DegreesToRadians(StartDeg + ArcSpan * i / Segments);
+		float A2 = FMath::DegreesToRadians(StartDeg + ArcSpan * (i + 1) / Segments);
+
+		// Shield background then fill
+		DrawLine(CX + ShieldRadius * FMath::Cos(A1), CY + ShieldRadius * FMath::Sin(A1),
+			CX + ShieldRadius * FMath::Cos(A2), CY + ShieldRadius * FMath::Sin(A2),
+			(i < ShieldFilled) ? ShieldColor : ShieldBg, ArcThick);
+
+		// Health background then fill
+		DrawLine(CX + HealthRadius * FMath::Cos(A1), CY + HealthRadius * FMath::Sin(A1),
+			CX + HealthRadius * FMath::Cos(A2), CY + HealthRadius * FMath::Sin(A2),
+			(i < HealthFilled) ? HealthColor : HealthBg, ArcThick);
+	}
+
+	// Labels at end of arcs
+	float LabelAngle = FMath::DegreesToRadians(StartDeg + ArcSpan + 5.f);
+	float SLX = CX + ShieldRadius * FMath::Cos(LabelAngle);
+	float SLY = CY + ShieldRadius * FMath::Sin(LabelAngle);
+	float HLX = CX + HealthRadius * FMath::Cos(LabelAngle);
+	float HLY = CY + HealthRadius * FMath::Sin(LabelAngle);
+
+	FString ShieldText = FString::Printf(TEXT("SHD %.0f"), Health->GetCurrentShield());
+	FString HealthText = FString::Printf(TEXT("HULL %.0f"), Health->GetCurrentHealth());
+	DrawText(ShieldText, ShieldColor, SLX, SLY - 8.f, nullptr, 0.75f);
+	DrawText(HealthText, HealthColor, HLX, HLY - 8.f, nullptr, 0.75f);
 }
 
 void ASpaceBattleHUD::DrawSpeedIndicator()
@@ -260,7 +290,7 @@ void ASpaceBattleHUD::DrawTargetingInfo()
 				DrawLine(
 					ScreenPos.X + LockRadius * FMath::Cos(A1), ScreenPos.Y + LockRadius * FMath::Sin(A1),
 					ScreenPos.X + LockRadius * FMath::Cos(A2), ScreenPos.Y + LockRadius * FMath::Sin(A2),
-					FLinearColor(1.f, 0.f, 0.f, 0.9f), 2.f);
+					FLinearColor(1.f, 0.f, 0.f, 0.9f), 4.f);
 			}
 
 			if (Tgt->HasMissileLock())
@@ -277,7 +307,7 @@ void ASpaceBattleHUD::DrawRadar()
 	if (!Ship) return;
 
 	float RadarSize = 100.f;
-	float RadarX = Canvas->ClipX - RadarSize - 30.f;
+	float RadarX = Canvas->ClipX - RadarSize - 230.f;
 	float RadarY = 30.f;
 	float RadarCenterX = RadarX + RadarSize;
 	float RadarCenterY = RadarY + RadarSize;
@@ -450,6 +480,133 @@ void ASpaceBattleHUD::DrawRespawnTimer()
 	DrawText(RespawnText, FLinearColor::White, CenterX - 70.f, CenterY + 10.f, nullptr, 1.f);
 }
 
+void ASpaceBattleHUD::DrawShipOutlines()
+{
+	APlayerSpaceship* Ship = GetPlayerShip();
+	if (!Ship) return;
+
+	APlayerController* PC = GetOwningPlayerController();
+	if (!PC) return;
+
+	TArray<AActor*> AllPawns;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), ASpaceshipBase::StaticClass(), AllPawns);
+
+	for (AActor* Actor : AllPawns)
+	{
+		if (Actor == Ship) continue;
+		ASpaceshipBase* OtherShip = Cast<ASpaceshipBase>(Actor);
+		if (!OtherShip) continue;
+		UHealthShieldComponent* Health = OtherShip->GetHealthComp();
+		if (!Health || !Health->IsAlive()) continue;
+
+		float Dist = FVector::Dist(Ship->GetActorLocation(), OtherShip->GetActorLocation());
+		if (Dist > 12000.f) continue;
+
+		FVector2D ScreenPos;
+		if (!PC->ProjectWorldLocationToScreen(OtherShip->GetActorLocation(), ScreenPos)) continue;
+
+		if (ScreenPos.X < -100.f || ScreenPos.X > Canvas->ClipX + 100.f ||
+			ScreenPos.Y < -100.f || ScreenPos.Y > Canvas->ClipY + 100.f) continue;
+
+		bool bAlly = (OtherShip->GetTeam() == Ship->GetTeam());
+		FLinearColor OutlineColor = bAlly ?
+			FLinearColor(0.f, 0.8f, 0.f, 0.6f) : FLinearColor(1.f, 0.2f, 0.2f, 0.6f);
+
+		float BoxSize = FMath::Clamp(3000.f / Dist * 35.f, 18.f, 60.f);
+		float Corner = BoxSize * 0.4f;
+		float Thick = 1.5f;
+
+		// Top-left
+		DrawLine(ScreenPos.X - BoxSize, ScreenPos.Y - BoxSize, ScreenPos.X - BoxSize + Corner, ScreenPos.Y - BoxSize, OutlineColor, Thick);
+		DrawLine(ScreenPos.X - BoxSize, ScreenPos.Y - BoxSize, ScreenPos.X - BoxSize, ScreenPos.Y - BoxSize + Corner, OutlineColor, Thick);
+		// Top-right
+		DrawLine(ScreenPos.X + BoxSize - Corner, ScreenPos.Y - BoxSize, ScreenPos.X + BoxSize, ScreenPos.Y - BoxSize, OutlineColor, Thick);
+		DrawLine(ScreenPos.X + BoxSize, ScreenPos.Y - BoxSize, ScreenPos.X + BoxSize, ScreenPos.Y - BoxSize + Corner, OutlineColor, Thick);
+		// Bottom-left
+		DrawLine(ScreenPos.X - BoxSize, ScreenPos.Y + BoxSize - Corner, ScreenPos.X - BoxSize, ScreenPos.Y + BoxSize, OutlineColor, Thick);
+		DrawLine(ScreenPos.X - BoxSize, ScreenPos.Y + BoxSize, ScreenPos.X - BoxSize + Corner, ScreenPos.Y + BoxSize, OutlineColor, Thick);
+		// Bottom-right
+		DrawLine(ScreenPos.X + BoxSize, ScreenPos.Y + BoxSize - Corner, ScreenPos.X + BoxSize, ScreenPos.Y + BoxSize, OutlineColor, Thick);
+		DrawLine(ScreenPos.X + BoxSize - Corner, ScreenPos.Y + BoxSize, ScreenPos.X + BoxSize, ScreenPos.Y + BoxSize, OutlineColor, Thick);
+	}
+}
+
+void ASpaceBattleHUD::DrawEnemyDirectionArrows()
+{
+	APlayerSpaceship* Ship = GetPlayerShip();
+	if (!Ship) return;
+
+	APlayerController* PC = GetOwningPlayerController();
+	if (!PC || !PC->PlayerCameraManager) return;
+
+	float ScreenW = Canvas->ClipX;
+	float ScreenH = Canvas->ClipY;
+	float CenterX = ScreenW * 0.5f;
+	float CenterY = ScreenH * 0.5f;
+	float Margin = 50.f;
+	float MaxDist = 25000.f;
+
+	FRotator CamRot = PC->PlayerCameraManager->GetCameraRotation();
+	FVector CamLoc = PC->PlayerCameraManager->GetCameraLocation();
+	FVector CamRight = FRotationMatrix(CamRot).GetUnitAxis(EAxis::Y);
+	FVector CamUp = FRotationMatrix(CamRot).GetUnitAxis(EAxis::Z);
+
+	TArray<AActor*> AllPawns;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), ASpaceshipBase::StaticClass(), AllPawns);
+
+	for (AActor* Actor : AllPawns)
+	{
+		if (Actor == Ship) continue;
+		ASpaceshipBase* OtherShip = Cast<ASpaceshipBase>(Actor);
+		if (!OtherShip) continue;
+		if (OtherShip->GetTeam() == Ship->GetTeam()) continue;
+		UHealthShieldComponent* Health = OtherShip->GetHealthComp();
+		if (!Health || !Health->IsAlive()) continue;
+
+		float Dist = FVector::Dist(Ship->GetActorLocation(), OtherShip->GetActorLocation());
+		if (Dist > MaxDist) continue;
+
+		FVector2D ScreenPos;
+		bool bOnScreen = PC->ProjectWorldLocationToScreen(OtherShip->GetActorLocation(), ScreenPos);
+
+		if (bOnScreen && ScreenPos.X > Margin && ScreenPos.X < ScreenW - Margin &&
+			ScreenPos.Y > Margin && ScreenPos.Y < ScreenH - Margin)
+		{
+			continue;
+		}
+
+		FVector ToEnemy = (OtherShip->GetActorLocation() - CamLoc).GetSafeNormal();
+		float DotRight = FVector::DotProduct(ToEnemy, CamRight);
+		float DotUp = FVector::DotProduct(ToEnemy, CamUp);
+
+		FVector2D Dir(DotRight, -DotUp);
+		if (Dir.SizeSquared() < 0.001f) continue;
+		Dir.Normalize();
+
+		float EdgeX = CenterX + Dir.X * (CenterX - Margin);
+		float EdgeY = CenterY + Dir.Y * (CenterY - Margin);
+		EdgeX = FMath::Clamp(EdgeX, Margin, ScreenW - Margin);
+		EdgeY = FMath::Clamp(EdgeY, Margin, ScreenH - Margin);
+
+		float Alpha = FMath::Clamp(1.f - (Dist / MaxDist), 0.15f, 0.9f);
+		FLinearColor ArrowColor(1.f, 0.1f, 0.1f, Alpha);
+
+		float Angle = FMath::Atan2(Dir.Y, Dir.X);
+		float ArrowSize = 14.f;
+
+		FVector2D Tip(EdgeX + FMath::Cos(Angle) * ArrowSize,
+			EdgeY + FMath::Sin(Angle) * ArrowSize);
+		FVector2D BaseL(EdgeX + FMath::Cos(Angle + 2.5f) * ArrowSize * 0.7f,
+			EdgeY + FMath::Sin(Angle + 2.5f) * ArrowSize * 0.7f);
+		FVector2D BaseR(EdgeX + FMath::Cos(Angle - 2.5f) * ArrowSize * 0.7f,
+			EdgeY + FMath::Sin(Angle - 2.5f) * ArrowSize * 0.7f);
+
+		DrawLine(Tip.X, Tip.Y, BaseL.X, BaseL.Y, ArrowColor, 2.5f);
+		DrawLine(Tip.X, Tip.Y, BaseR.X, BaseR.Y, ArrowColor, 2.5f);
+		DrawLine(BaseL.X, BaseL.Y, BaseR.X, BaseR.Y, ArrowColor, 2.5f);
+	}
+}
+
 void ASpaceBattleHUD::DrawControlsHelp()
 {
 	float X = 20.f;
@@ -459,13 +616,12 @@ void ASpaceBattleHUD::DrawControlsHelp()
 
 	DrawText(TEXT("W/S - Throttle"), HelpColor, X, Y, nullptr, 0.7f); Y += LineH;
 	DrawText(TEXT("Mouse - Steer"), HelpColor, X, Y, nullptr, 0.7f); Y += LineH;
-	DrawText(TEXT("Q/E - Roll"), HelpColor, X, Y, nullptr, 0.7f); Y += LineH;
+	DrawText(TEXT("A/D - Roll"), HelpColor, X, Y, nullptr, 0.7f); Y += LineH;
 	DrawText(TEXT("LMB - Fire Lasers"), HelpColor, X, Y, nullptr, 0.7f); Y += LineH;
 	DrawText(TEXT("RMB - Lock On"), HelpColor, X, Y, nullptr, 0.7f); Y += LineH;
 	DrawText(TEXT("MMB - Fire Missile"), HelpColor, X, Y, nullptr, 0.7f); Y += LineH;
 	DrawText(TEXT("Shift - Boost"), HelpColor, X, Y, nullptr, 0.7f); Y += LineH;
-	DrawText(TEXT("Space - Barrel Roll"), HelpColor, X, Y, nullptr, 0.7f); Y += LineH;
-	DrawText(TEXT("Tab - Cycle Target"), HelpColor, X, Y, nullptr, 0.7f);
+	DrawText(TEXT("Space - Barrel Roll"), HelpColor, X, Y, nullptr, 0.7f);
 }
 
 void ASpaceBattleHUD::DrawBar(float X, float Y, float Width, float Height, float Percent, FLinearColor FillColor, FLinearColor BackColor)

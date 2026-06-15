@@ -45,7 +45,7 @@ public:
 	ESpaceTeam OwnerTeam = ESpaceTeam::Neutral;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio", meta = (ClampMin = "0.0", ClampMax = "2.0"))
-	float LaserShotVolume = 0.25f;
+	float LaserShotVolume = 1.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio", meta = (ClampMin = "0.1", ClampMax = "3.0"))
 	float LaserShotPitch = 1.f;

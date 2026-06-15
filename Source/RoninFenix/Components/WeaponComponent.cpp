@@ -4,6 +4,11 @@
 #include "GameFramework/Pawn.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
+#if WITH_EDITOR
+#include "AssetImportTask.h"
+#include "AssetToolsModule.h"
+#include "IAssetTools.h"
+#endif
 
 UWeaponComponent::UWeaponComponent()
 {
@@ -99,14 +104,44 @@ void UWeaponComponent::FireLaser()
 		Laser->Initialize(LaserDamage, SpaceConstants::LaserSpeed, OwnerTeam);
 	}
 
-	// Play laser shot sound
 	if (!LaserSound)
 	{
-		LaserSound = LoadObject<USoundWave>(nullptr, TEXT("/Game/Sounds/LaserShot2.LaserShot2"));
+		LaserSound = LoadObject<USoundWave>(nullptr, TEXT("/Game/Sounds/lasershot4.lasershot4"));
+
+#if WITH_EDITOR
+		if (!LaserSound)
+		{
+			FString WavPath = FPaths::ProjectContentDir() / TEXT("Sounds/lasershot4.wav");
+			if (FPaths::FileExists(WavPath))
+			{
+				UAssetImportTask* Task = NewObject<UAssetImportTask>();
+				Task->Filename = WavPath;
+				Task->DestinationPath = TEXT("/Game/Sounds");
+				Task->bAutomated = true;
+				Task->bSave = true;
+				Task->bReplaceExisting = true;
+
+				IAssetTools& Tools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
+				TArray<UAssetImportTask*> Tasks;
+				Tasks.Add(Task);
+				Tools.ImportAssetTasks(Tasks);
+
+				LaserSound = LoadObject<USoundWave>(nullptr, TEXT("/Game/Sounds/lasershot4.lasershot4"));
+			}
+		}
+#endif
 	}
 	if (LaserSound)
 	{
-		UGameplayStatics::PlaySoundAtLocation(this, LaserSound, SpawnLoc, LaserShotVolume, LaserShotPitch);
+		APawn* OwnerPawn = Cast<APawn>(Owner);
+		if (OwnerPawn && OwnerPawn->IsLocallyControlled())
+		{
+			UGameplayStatics::PlaySound2D(this, LaserSound, LaserShotVolume, LaserShotPitch);
+		}
+		else
+		{
+			UGameplayStatics::PlaySoundAtLocation(this, LaserSound, SpawnLoc, LaserShotVolume, LaserShotPitch);
+		}
 	}
 }
 

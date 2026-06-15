@@ -1,5 +1,6 @@
 #include "AI/SpaceshipAIController.h"
 #include "Pawns/SpaceshipBase.h"
+#include "Pawns/PlayerSpaceship.h"
 #include "Actors/CapitalShip.h"
 #include "Components/SpaceshipMovementComponent.h"
 #include "Components/WeaponComponent.h"
@@ -19,11 +20,34 @@ void ASpaceshipAIController::OnPossess(APawn* InPawn)
 
 	if (ShipPawn)
 	{
-		// Set home position near their capital ship
-		float Direction = (ShipPawn->GetTeam() == ESpaceTeam::Alpha) ? -1.f : 1.f;
-		HomePosition = FVector(Direction * SpaceConstants::CapitalShipSpawnDistance, 0.f, 10000.f);
+		// Assign role randomly: 50/50 attacker/defender
+		Role = FMath::RandBool() ? EAIRole::Attacker : EAIRole::Defender;
+
+		float OwnDir = (ShipPawn->GetTeam() == ESpaceTeam::Alpha) ? -1.f : 1.f;
+		float EnemyDir = -OwnDir;
+
+		if (Role == EAIRole::Defender)
+		{
+			HomePosition = FVector(OwnDir * SpaceConstants::CapitalShipSpawnDistance, 0.f, 10000.f);
+			PatrolRadius = 8000.f;
+			MaxDistanceFromHome = 15000.f;
+		}
+		else
+		{
+			HomePosition = FVector(EnemyDir * SpaceConstants::CapitalShipSpawnDistance * 0.6f, 0.f, 10000.f);
+			PatrolRadius = 12000.f;
+			MaxDistanceFromHome = 25000.f;
+		}
+
 		PatrolTarget = HomePosition + FMath::VRand() * PatrolRadius;
+
+		ShipPawn->GetHealthComp()->OnDamageTaken.AddDynamic(this, &ASpaceshipAIController::OnTookDamage);
 	}
+}
+
+void ASpaceshipAIController::OnTookDamage(float Damage, AActor* DamageCauser)
+{
+	LastDamageTime = GetWorld()->GetTimeSeconds();
 }
 
 void ASpaceshipAIController::Tick(float DeltaTime)
@@ -33,8 +57,10 @@ void ASpaceshipAIController::Tick(float DeltaTime)
 	if (!ShipPawn) return;
 	if (!ShipPawn->GetHealthComp()->IsAlive()) return;
 
+	bRecentlyDamaged = (GetWorld()->GetTimeSeconds() - LastDamageTime) < 3.f;
+
 	DecisionTimer += DeltaTime;
-	if (DecisionTimer >= 1.f)
+	if (DecisionTimer >= DecisionInterval)
 	{
 		DecisionTimer = 0.f;
 		UpdateState();
@@ -51,6 +77,9 @@ void ASpaceshipAIController::Tick(float DeltaTime)
 	case EAIState::AttackCapitalShip:
 		ExecuteAttackCapitalShip(DeltaTime);
 		break;
+	case EAIState::ChasePlayer:
+		ExecuteChasePlayer(DeltaTime);
+		break;
 	case EAIState::Evade:
 		ExecuteEvade(DeltaTime);
 		break;
@@ -64,23 +93,38 @@ void ASpaceshipAIController::UpdateState()
 {
 	if (!ShipPawn) return;
 
+	// Evade if recently took damage and health is low
 	float HealthPct = ShipPawn->GetHealthComp()->GetHealthPercent();
+	if (bRecentlyDamaged && HealthPct < 0.3f && CurrentState != EAIState::Evade)
+	{
+		CurrentState = EAIState::Evade;
+		EvadeTimer = 3.f;
+		return;
+	}
 
-	// Leash: return to base if too far from home
+	// Leash check
 	float DistFromHome = FVector::Dist(ShipPawn->GetActorLocation(), HomePosition);
-	if (DistFromHome > MaxDistanceFromHome && CurrentState != EAIState::Evade && CurrentState != EAIState::ReturnToBase)
+	if (DistFromHome > MaxDistanceFromHome && CurrentState != EAIState::Evade)
 	{
 		CurrentState = EAIState::ReturnToBase;
 		return;
 	}
 
-	if (HealthPct < 0.2f && CurrentState != EAIState::Evade)
+	// Chance to chase player (12%)
+	ASpaceshipBase* Player = FindPlayerShip();
+	if (Player && FMath::RandRange(0, 99) < 12)
 	{
-		CurrentState = EAIState::Evade;
-		EvadeTimer = 5.f;
-		return;
+		float DistToPlayer = FVector::Dist(ShipPawn->GetActorLocation(), Player->GetActorLocation());
+		if (DistToPlayer < 15000.f)
+		{
+			CurrentTarget = Player;
+			CurrentState = EAIState::ChasePlayer;
+			ChasePlayerTimer = FMath::RandRange(5.f, 10.f);
+			return;
+		}
 	}
 
+	// Look for nearby enemy fighters
 	ASpaceshipBase* Enemy = FindNearestEnemy();
 	if (Enemy)
 	{
@@ -93,7 +137,8 @@ void ASpaceshipAIController::UpdateState()
 		}
 	}
 
-	if (FMath::RandRange(0, 10) < 3)
+	// Attackers go after capital ship
+	if (Role == EAIRole::Attacker && FMath::RandRange(0, 99) < 40)
 	{
 		ACapitalShip* EnemyCap = FindEnemyCapitalShip();
 		if (EnemyCap && !EnemyCap->IsDestroyed())
@@ -104,6 +149,7 @@ void ASpaceshipAIController::UpdateState()
 		}
 	}
 
+	// Default to patrol
 	if (CurrentState != EAIState::Patrol)
 	{
 		CurrentState = EAIState::Patrol;
@@ -114,13 +160,13 @@ void ASpaceshipAIController::UpdateState()
 void ASpaceshipAIController::ExecutePatrol(float DeltaTime)
 {
 	float Dist = FVector::Dist(ShipPawn->GetActorLocation(), PatrolTarget);
-	if (Dist < 1000.f)
+	if (Dist < 1500.f)
 	{
 		PatrolTarget = HomePosition + FMath::VRand() * PatrolRadius;
 	}
 
-	FlyToward(PatrolTarget, DeltaTime, 500.f);
-	ShipPawn->GetMovementComp()->SetThrottleInput(0.5f);
+	FlyToward(PatrolTarget, DeltaTime);
+	ShipPawn->GetMovementComp()->SetThrottleInput(0.6f);
 	ShipPawn->GetWeaponComp()->StopFiringLasers();
 }
 
@@ -148,12 +194,12 @@ void ASpaceshipAIController::ExecuteEngage(float DeltaTime)
 		return;
 	}
 
-	FlyToward(CurrentTarget->GetActorLocation(), DeltaTime, 800.f);
+	FlyToward(CurrentTarget->GetActorLocation(), DeltaTime);
 
 	FVector ToTarget = (CurrentTarget->GetActorLocation() - ShipPawn->GetActorLocation()).GetSafeNormal();
 	float DotForward = FVector::DotProduct(ShipPawn->GetActorForwardVector(), ToTarget);
 
-	if (DotForward > 0.9f && Dist < 4000.f)
+	if (DotForward > 0.85f && Dist < 5000.f)
 	{
 		ShipPawn->GetWeaponComp()->StartFiringLasers();
 	}
@@ -162,20 +208,13 @@ void ASpaceshipAIController::ExecuteEngage(float DeltaTime)
 		ShipPawn->GetWeaponComp()->StopFiringLasers();
 	}
 
-	if (Dist < 1500.f)
+	if (Dist < 800.f)
 	{
-		ShipPawn->GetMovementComp()->SetThrottleInput(-0.3f);
+		ShipPawn->GetMovementComp()->SetThrottleInput(0.3f);
 	}
 	else
 	{
 		ShipPawn->GetMovementComp()->SetThrottleInput(1.f);
-	}
-
-	if (Dist < 600.f)
-	{
-		ShipPawn->GetMovementComp()->SetBoostInput(true);
-		CurrentState = EAIState::Evade;
-		EvadeTimer = 2.f;
 	}
 }
 
@@ -199,13 +238,13 @@ void ASpaceshipAIController::ExecuteAttackCapitalShip(float DeltaTime)
 		}
 	}
 
-	FlyToward(AttackPoint, DeltaTime, 1500.f);
+	FlyToward(AttackPoint, DeltaTime);
 
 	float Dist = FVector::Dist(ShipPawn->GetActorLocation(), AttackPoint);
 	FVector ToTarget = (AttackPoint - ShipPawn->GetActorLocation()).GetSafeNormal();
 	float DotForward = FVector::DotProduct(ShipPawn->GetActorForwardVector(), ToTarget);
 
-	if (DotForward > 0.85f && Dist < 5000.f)
+	if (DotForward > 0.8f && Dist < 6000.f)
 	{
 		ShipPawn->GetWeaponComp()->StartFiringLasers();
 		ShipPawn->GetMovementComp()->SetThrottleInput(1.f);
@@ -213,12 +252,59 @@ void ASpaceshipAIController::ExecuteAttackCapitalShip(float DeltaTime)
 	else
 	{
 		ShipPawn->GetWeaponComp()->StopFiringLasers();
+		ShipPawn->GetMovementComp()->SetThrottleInput(0.8f);
 	}
 
-	if (Dist < 1000.f)
+	if (Dist < 1200.f)
 	{
-		CurrentState = EAIState::Evade;
-		EvadeTimer = 3.f;
+		CurrentState = EAIState::Patrol;
+		PatrolTarget = HomePosition + FMath::VRand() * PatrolRadius;
+	}
+}
+
+void ASpaceshipAIController::ExecuteChasePlayer(float DeltaTime)
+{
+	ChasePlayerTimer -= DeltaTime;
+
+	if (!CurrentTarget || !IsValid(CurrentTarget) || ChasePlayerTimer <= 0.f)
+	{
+		CurrentTarget = nullptr;
+		CurrentState = EAIState::Patrol;
+		return;
+	}
+
+	ASpaceshipBase* PlayerShip = Cast<ASpaceshipBase>(CurrentTarget);
+	if (PlayerShip && !PlayerShip->GetHealthComp()->IsAlive())
+	{
+		CurrentTarget = nullptr;
+		CurrentState = EAIState::Patrol;
+		return;
+	}
+
+	float Dist = FVector::Dist(ShipPawn->GetActorLocation(), CurrentTarget->GetActorLocation());
+
+	FlyToward(CurrentTarget->GetActorLocation(), DeltaTime);
+
+	FVector ToTarget = (CurrentTarget->GetActorLocation() - ShipPawn->GetActorLocation()).GetSafeNormal();
+	float DotForward = FVector::DotProduct(ShipPawn->GetActorForwardVector(), ToTarget);
+
+	if (DotForward > 0.85f && Dist < 5000.f)
+	{
+		ShipPawn->GetWeaponComp()->StartFiringLasers();
+	}
+	else
+	{
+		ShipPawn->GetWeaponComp()->StopFiringLasers();
+	}
+
+	ShipPawn->GetMovementComp()->SetThrottleInput(1.f);
+	if (Dist > 3000.f)
+	{
+		ShipPawn->GetMovementComp()->SetBoostInput(true);
+	}
+	else
+	{
+		ShipPawn->GetMovementComp()->SetBoostInput(false);
 	}
 }
 
@@ -229,20 +315,26 @@ void ASpaceshipAIController::ExecuteEvade(float DeltaTime)
 	ShipPawn->GetMovementComp()->SetThrottleInput(1.f);
 	ShipPawn->GetMovementComp()->SetBoostInput(true);
 
-	FVector EvadeDir = ShipPawn->GetActorForwardVector() + ShipPawn->GetActorRightVector() * FMath::Sin(GetWorld()->GetTimeSeconds() * 1.f) * 0.5f;
-	FVector EvadeTarget = ShipPawn->GetActorLocation() + EvadeDir * 3000.f;
-	FlyToward(EvadeTarget, DeltaTime, 0.f);
+	// Jinking — only during evasion does the AI fly erratically
+	float Time = GetWorld()->GetTimeSeconds();
+	float JinkYaw = FMath::Sin(Time * 4.f) * 0.8f;
+	float JinkPitch = FMath::Cos(Time * 3.f) * 0.5f;
+
+	ShipPawn->GetMovementComp()->SetYawInput(JinkYaw);
+	ShipPawn->GetMovementComp()->SetPitchInput(JinkPitch);
+	ShipPawn->GetMovementComp()->SetRollInput(FMath::Sin(Time * 2.f) * 0.6f);
 
 	if (EvadeTimer <= 0.f)
 	{
 		ShipPawn->GetMovementComp()->SetBoostInput(false);
 		CurrentState = EAIState::Patrol;
+		PatrolTarget = HomePosition + FMath::VRand() * PatrolRadius;
 	}
 }
 
 void ASpaceshipAIController::ExecuteReturnToBase(float DeltaTime)
 {
-	FlyToward(HomePosition, DeltaTime, 2000.f);
+	FlyToward(HomePosition, DeltaTime);
 	ShipPawn->GetMovementComp()->SetThrottleInput(1.f);
 
 	if (FVector::Dist(ShipPawn->GetActorLocation(), HomePosition) < 5000.f)
@@ -252,41 +344,42 @@ void ASpaceshipAIController::ExecuteReturnToBase(float DeltaTime)
 	}
 }
 
-void ASpaceshipAIController::FlyToward(FVector TargetLocation, float DeltaTime, float DesiredDistance)
+void ASpaceshipAIController::FlyToward(FVector TargetLocation, float DeltaTime)
 {
 	if (!ShipPawn) return;
 
-	FVector ToTarget = TargetLocation - ShipPawn->GetActorLocation();
-	FVector TargetDir = ToTarget.GetSafeNormal();
+	FVector ToTarget = (TargetLocation - ShipPawn->GetActorLocation()).GetSafeNormal();
 	FVector Forward = ShipPawn->GetActorForwardVector();
 	FVector Right = ShipPawn->GetActorRightVector();
 	FVector Up = ShipPawn->GetActorUpVector();
 
-	float YawDot = FVector::DotProduct(TargetDir, Right);
-	float PitchDot = FVector::DotProduct(TargetDir, Up);
-	float ForwardDot = FVector::DotProduct(TargetDir, Forward);
+	float YawDot = FVector::DotProduct(ToTarget, Right);
+	float PitchDot = FVector::DotProduct(ToTarget, Up);
 
-	float YawInput = FMath::Clamp(YawDot * 1.5f, -1.f, 1.f);
-	float PitchInput = FMath::Clamp(-PitchDot * 1.5f, -1.f, 1.f);
+	float DesiredYaw = FMath::Clamp(YawDot * 2.f, -1.f, 1.f);
+	float DesiredPitch = FMath::Clamp(-PitchDot * 2.f, -1.f, 1.f);
 
-	float RollTarget = -YawDot * 1.f;
+	// Bank into turns
+	float DesiredRoll = -YawDot * 1.2f;
 	float CurrentRollDot = FVector::DotProduct(FVector::UpVector, Right);
-	float RollInput = FMath::Clamp((RollTarget - CurrentRollDot) * 1.f, -1.f, 1.f);
+	float RollCorrection = FMath::Clamp((DesiredRoll - CurrentRollDot), -1.f, 1.f);
 
-	ShipPawn->GetMovementComp()->SetYawInput(YawInput);
-	ShipPawn->GetMovementComp()->SetPitchInput(PitchInput);
-	ShipPawn->GetMovementComp()->SetRollInput(RollInput);
+	// Smooth interpolation — linear, non-erratic flight
+	CurrentYawInput = FMath::FInterpTo(CurrentYawInput, DesiredYaw, DeltaTime, SteerSmoothing);
+	CurrentPitchInput = FMath::FInterpTo(CurrentPitchInput, DesiredPitch, DeltaTime, SteerSmoothing);
+	CurrentRollInput = FMath::FInterpTo(CurrentRollInput, RollCorrection, DeltaTime, SteerSmoothing);
+
+	ShipPawn->GetMovementComp()->SetYawInput(CurrentYawInput);
+	ShipPawn->GetMovementComp()->SetPitchInput(CurrentPitchInput);
+	ShipPawn->GetMovementComp()->SetRollInput(CurrentRollInput);
 }
 
 ASpaceshipBase* ASpaceshipAIController::FindNearestEnemy() const
 {
 	if (!ShipPawn) return nullptr;
 
-	UWorld* World = GetWorld();
-	if (!World) return nullptr;
-
 	TArray<AActor*> AllPawns;
-	UGameplayStatics::GetAllActorsOfClass(World, ASpaceshipBase::StaticClass(), AllPawns);
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), ASpaceshipBase::StaticClass(), AllPawns);
 
 	ASpaceshipBase* Nearest = nullptr;
 	float NearestDist = EngageRange;
@@ -308,15 +401,19 @@ ASpaceshipBase* ASpaceshipAIController::FindNearestEnemy() const
 	return Nearest;
 }
 
+ASpaceshipBase* ASpaceshipAIController::FindPlayerShip() const
+{
+	APlayerController* PC = GetWorld()->GetFirstPlayerController();
+	if (!PC) return nullptr;
+	return Cast<ASpaceshipBase>(PC->GetPawn());
+}
+
 ACapitalShip* ASpaceshipAIController::FindEnemyCapitalShip() const
 {
 	if (!ShipPawn) return nullptr;
 
-	UWorld* World = GetWorld();
-	if (!World) return nullptr;
-
 	TArray<AActor*> CapShips;
-	UGameplayStatics::GetAllActorsOfClass(World, ACapitalShip::StaticClass(), CapShips);
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), ACapitalShip::StaticClass(), CapShips);
 
 	for (AActor* Actor : CapShips)
 	{
